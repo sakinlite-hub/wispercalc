@@ -1249,15 +1249,6 @@ function startPresence() {
       }, { merge: true });
     } catch(e) {}
   });
-  window.addEventListener('unload', async () => {
-    if (!currentUser) return;
-    try {
-      await usersCol.doc(currentUser.uid).set({
-        isOnline: false,
-        lastActive: firebase.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
-    } catch(e) {}
-  });
   window.addEventListener('focus', async () => {
     if (!currentUser) return;
     try {
