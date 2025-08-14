@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhisperCalc</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="brand">WhisperCalc</div>
+      <div class="actions">
+        <button id="authBtn" class="btn primary">Sign In / Register</button>
+        <button id="profileBtn" class="btn" style="display:none;">Edit Profile</button>
+        <button id="logoutBtn" class="btn" style="display:none;">Logout</button>
+      </div>
+    </header>
+
+    <!-- Calculator Screen (always visible on load) -->
+    <main class="calculator-screen" id="calculatorScreen">
+      <div class="calc">
+        <input id="calcDisplay" class="calc-display" type="text" placeholder="0" inputmode="numeric" readonly />
+        <div class="calc-grid">
+          <button data-key="C" class="key muted">C</button>
+          <button data-key="DEL" class="key muted">DEL</button>
+          <button data-key="/" class="key muted">÷</button>
+          <button data-key="*" class="key muted">×</button>
+
+          <button data-key="7" class="key">7</button>
+          <button data-key="8" class="key">8</button>
+          <button data-key="9" class="key">9</button>
+          <button data-key="-" class="key muted">−</button>
+
+          <button data-key="4" class="key">4</button>
+          <button data-key="5" class="key">5</button>
+          <button data-key="6" class="key">6</button>
+          <button data-key="+" class="key muted">+</button>
+
+          <button data-key="1" class="key">1</button>
+          <button data-key="2" class="key">2</button>
+          <button data-key="3" class="key">3</button>
+          <button data-key="=" class="key accent">=</button>
+
+          <button data-key="0" class="key zero">0</button>
+          <button data-key="." class="key">.</button>
+        </div>
+        <p id="calcHint" class="calc-hint">Enter your numeric passcode and press =</p>
+      </div>
+    </main>
+
+    <!-- Chat UI (hidden until unlocked) -->
+    <section id="chatUI" class="chat-ui hidden">
+      <aside class="sidebar">
+        <div class="me-card">
+          <div class="me-row">
+            <div class="avatar" id="meAvatar" aria-hidden="true"></div>
+            <div>
+              <div class="me-name" id="meName">—</div>
+              <div class="me-email" id="meEmail">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="search">
+          <input id="userSearch" type="text" placeholder="Search users..." />
+        </div>
+        <ul id="userList" class="user-list"></ul>
+      </aside>
+      <div class="chat-panel">
+        <div class="chat-header">
+          <button id="backBtn" class="btn ghost back" aria-label="Back" title="Back" style="display:none;">← Back</button>
+          <div class="peer">
+            <div id="peerName">Select a user</div>
+            <div id="peerStatus" class="status">—</div>
+          </div>
+        </div>
+        <!-- Empty state shown until a user is selected -->
+        <div id="emptyState" class="empty-state">
+          <div class="card">
+            <div class="icon" aria-hidden="true">💬</div>
+            <h3>Start a conversation</h3>
+            <p>Select a user from the list to view messages and start chatting.</p>
+          </div>
+        </div>
+        <div id="messages" class="messages" aria-live="polite" aria-atomic="false"></div>
+        <div id="typingIndicators" class="typing typing-inline hidden" aria-live="polite" aria-atomic="true"></div>
+        <div id="replyPreview" class="reply-preview hidden" aria-live="polite">
+          <div class="rp-side"></div>
+          <div class="rp-content">
+            <div class="rp-label">Replying to</div>
+            <div id="replyText" class="rp-text"></div>
+          </div>
+          <button id="replyCancel" class="rp-cancel" aria-label="Cancel reply">×</button>
+        </div>
+        <form id="messageForm" class="message-form">
+          <textarea id="messageInput" rows="1" placeholder="Type a message or paste a TikTok URL..." autocomplete="off" enterkeyhint="enter"></textarea>
+          <button id="soundToggle" class="btn ghost sound-toggle" type="button" aria-label="Toggle send sound">
+            <span class="icon" aria-hidden="true">🔇</span>
+            <span class="label sr-only">Toggle sound</span>
+          </button>
+          <button id="imageBtn" class="btn ghost image-btn" type="button" aria-label="Attach image">
+            <span class="icon" aria-hidden="true">
+              <!-- Image icon SVG -->
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M7 16l4-4 3 3 3-3 3 3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="9" cy="8" r="1.5" fill="currentColor"/>
+              </svg>
+            </span>
+            <span class="label sr-only">Attach image</span>
+          </button>
+          <button class="btn primary send-btn" type="submit" aria-label="Send">
+            <span class="plane" aria-hidden="true">
+              <!-- Paper plane send icon SVG -->
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path d="M21.44 2.56a1 1 0 0 0-1.05-.22L3.7 9.1a1 1 0 0 0 .07 1.88l7.12 2.37 2.37 7.12a1 1 0 0 0 1.88.07l6.77-16.69a1 1 0 0 0-.47-1.29ZM6.53 10.06l11.9-4.83-6.3 6.3-5.6-1.47Zm8.41 8.41-1.47-5.6 6.3-6.3-4.83 11.9Z" fill="currentColor"/>
+              </svg>
+            </span>
+            <span class="label sr-only">Send</span>
+          </button>
+        </form>
+        <input id="imagePicker" type="file" accept="image/*" style="display:none" />
+      </div>
+    </section>
+  </div>
+
+  <!-- Message context menu (Edit/Delete) -->
+  <div id="msgMenu" class="context-menu hidden" role="menu" aria-hidden="true">
+    <button type="button" class="menu-item" data-action="edit" role="menuitem">Edit</button>
+    <button type="button" class="menu-item" data-action="delete-me" role="menuitem">Delete for me</button>
+    <button type="button" class="menu-item danger" data-action="delete-all" role="menuitem">Delete for everyone</button>
+  </div>
+
+  <!-- Floating reaction bar -->
+  <div id="reactionBar" class="reaction-bar hidden" role="menu" aria-hidden="true" aria-label="Add reaction">
+    <button type="button" class="reaction-choice" data-emoji="👍" aria-label="Thumbs up">👍</button>
+    <button type="button" class="reaction-choice" data-emoji="❤️" aria-label="Heart">❤️</button>
+    <button type="button" class="reaction-choice" data-emoji="😂" aria-label="Joy">😂</button>
+    <button type="button" class="reaction-choice" data-emoji="😮" aria-label="Surprised">😮</button>
+    <button type="button" class="reaction-choice" data-emoji="😢" aria-label="Sad">😢</button>
+  </div>
+
+  <!-- Image viewer modal -->
+  <div id="imageViewer" class="image-viewer hidden" aria-hidden="true" role="dialog" aria-label="Image viewer">
+    <div class="iv-backdrop"></div>
+    <div class="iv-content" role="document">
+      <img id="imageViewerImg" alt="Image preview" />
+      <div class="iv-actions">
+        <button id="imageDownload" class="btn primary" type="button" aria-label="Download image">Download</button>
+        <button id="imageClose" class="btn ghost" type="button" aria-label="Close viewer">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile bottom sheet for own messages (Edit/Delete) -->
+  <div id="mobileSheet" class="mobile-sheet hidden" role="dialog" aria-hidden="true" aria-label="Message options">
+    <div class="mobile-sheet__panel">
+      <button type="button" class="sheet-item" data-action="edit">Edit</button>
+      <button type="button" class="sheet-item" data-action="delete-me">Delete for me</button>
+      <button type="button" class="sheet-item danger" data-action="delete-all">Delete for everyone</button>
+      <button type="button" class="sheet-item close">Cancel</button>
+    </div>
+    <div class="mobile-sheet__scrim"></div>
+  </div>
+
+  <!-- Auth Modal -->
+  <dialog id="authModal" class="modal">
+    <form method="dialog" class="modal-content" id="authForm">
+      <h2>Welcome</h2>
+      <div class="tabs">
+        <button type="button" data-tab="login" class="tab active">Login</button>
+        <button type="button" data-tab="register" class="tab">Register</button>
+      </div>
+      <div class="tab-content" id="loginTab">
+        <label>Email
+          <input type="email" id="loginEmail" required />
+        </label>
+        <label>Password
+          <input type="password" id="loginPassword" required />
+        </label>
+        <button type="button" id="loginBtn" class="btn primary full">Login</button>
+      </div>
+      <div class="tab-content hidden" id="registerTab">
+        <label>Username
+          <input type="text" id="regUsername" minlength="3" maxlength="20" required />
+        </label>
+        <label>Email
+          <input type="email" id="regEmail" required />
+        </label>
+        <label>Password
+          <input type="password" id="regPassword" minlength="6" required />
+        </label>
+        <div class="avatar-section">
+          <div class="field-label">Choose your avatar</div>
+          <div class="avatar-type-group">
+            <label class="radio-card">
+              <input type="radio" name="regAvatarTypeRadio" value="image" />
+              <div class="card">
+                <div class="icon">🖼️</div>
+                <div class="title">Photo</div>
+                <div class="hint">Upload a profile photo</div>
+              </div>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="regAvatarTypeRadio" value="letter" checked />
+              <div class="card">
+                <div class="icon">🔤</div>
+                <div class="title">Letter</div>
+                <div class="hint">Use the first letter</div>
+              </div>
+            </label>
+          </div>
+          <input type="hidden" id="regAvatarType" value="letter" />
+
+          <div id="regAvatarImageControls" class="avatar-controls hidden">
+            <div class="preview-row">
+              <div class="avatar preview">
+                <img id="regAvatarPreview" alt="Preview" style="display:none" />
+              </div>
+              <div class="preview-actions">
+                <button type="button" id="regAvatarUploadBtn" class="btn ghost">Upload photo</button>
+                <div class="subhint">Max 2MB. JPG/PNG recommended.</div>
+                <div id="regAvatarProgress" class="progress hidden" aria-hidden="true">
+                  <div id="regAvatarProgressBar" class="progress-bar" style="width:0%"></div>
+                </div>
+              </div>
+            </div>
+            <input id="regAvatarPicker" type="file" accept="image/*" style="display:none" />
+          </div>
+
+          <div id="regAvatarLetterControls" class="avatar-letter">
+            <label style="display:flex; align-items:center; gap:10px;">
+              <span>Letter</span>
+              <input type="text" id="regLetter" maxlength="1" placeholder="A" />
+            </label>
+          </div>
+        </div>
+        <label>Numeric Passcode (lock)
+          <input type="text" id="regPasscode" pattern="\\d+" inputmode="numeric" placeholder="digits only" required />
+        </label>
+        <button type="button" id="registerBtn" class="btn primary full">Create Account</button>
+      </div>
+      <button id="closeAuth" class="btn ghost" value="close">Close</button>
+      <p id="authError" class="error"></p>
+    </form>
+    <!-- Loading overlay during auth requests -->
+    <div id="authLoading" class="loading-overlay hidden" aria-live="polite" aria-busy="false">
+      <div class="loader"></div>
+      <div class="loading-text">Signing you in…</div>
+    </div>
+  </dialog>
+
+  <!-- Profile Modal -->
+  <dialog id="profileModal" class="modal">
+    <form method="dialog" class="modal-content" id="profileForm">
+      <h2>Edit Profile</h2>
+      <div class="form-grid">
+        <label>Username
+          <input type="text" id="profUsername" minlength="3" maxlength="20" required />
+        </label>
+        <label>Email
+          <input type="email" id="profEmail" required />
+        </label>
+
+        <div class="avatar-section">
+          <div class="field-label">Avatar</div>
+          <!-- hidden field used by JS as single source of truth -->
+          <input type="hidden" id="profAvatarType" value="letter" />
+          <div class="avatar-type-group">
+            <label class="radio-card">
+              <input type="radio" name="avatarType" value="image" />
+              <div class="card">
+                <div class="icon">🖼️</div>
+                <div class="title">Photo</div>
+                <div class="hint">Upload a profile picture</div>
+              </div>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="avatarType" value="letter" checked />
+              <div class="card">
+                <div class="icon">🔤</div>
+                <div class="title">Letter</div>
+                <div class="hint">Use your initial</div>
+              </div>
+            </label>
+          </div>
+
+          <div class="avatar-controls">
+            <div class="avatar-image-controls">
+              <div class="preview-row">
+                <div class="avatar preview"><img id="profAvatarPreview" alt="Avatar preview" /></div>
+                <div class="preview-actions">
+                  <button type="button" id="profAvatarUploadBtn" class="btn ghost">Upload photo</button>
+                  <div class="subhint">Max 2MB. JPG/PNG recommended.</div>
+                  <div id="profAvatarProgress" class="progress hidden" aria-hidden="true">
+                    <div id="profAvatarProgressBar" class="progress-bar" style="width:0%"></div>
+                  </div>
+                </div>
+              </div>
+              <input id="profAvatarPicker" type="file" accept="image/*" style="display:none" />
+            </div>
+            <label class="avatar-letter">
+              <span>Letter</span>
+              <input type="text" id="profLetter" placeholder="A" maxlength="2" />
+            </label>
+          </div>
+        </div>
+      </div>
+      <button type="button" id="saveProfileBtn" class="btn primary full">Save</button>
+      <button type="button" id="closeProfile" class="btn ghost">Close</button>
+      <p id="profileError" class="error"></p>
+    </form>
+  </dialog>
+
+  <!-- TikTok embed script will be injected dynamically when needed -->
+
+  <!-- Firebase SDKs (compat for simplicity) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
