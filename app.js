@@ -9,6 +9,7 @@ const db = firebase.firestore();
 // Firestore collections
 const usersCol = db.collection('users');
 const chatsCol = db.collection('chats');
+const storiesCol = db.collection('stories');
 
 // UI Elements
 const authBtn = document.getElementById('authBtn');
@@ -57,6 +58,7 @@ const regPasscode = document.getElementById('regPasscode');
 const calculatorScreen = document.getElementById('calculatorScreen');
 const calcDisplay = document.getElementById('calcDisplay');
 const calcHint = document.getElementById('calcHint');
+const calcGrid = document.querySelector('.calc-grid');
 
 const chatUI = document.getElementById('chatUI');
 const meName = document.getElementById('meName');
@@ -69,6 +71,12 @@ const messageForm = document.getElementById('messageForm');
 const messageInput = document.getElementById('messageInput');
 const imageBtn = document.getElementById('imageBtn');
 const imagePicker = document.getElementById('imagePicker');
+// Sticker picker elements
+const stickerBtn = document.getElementById('stickerBtn');
+const stickerPicker = document.getElementById('stickerPicker');
+const stickerSearch = document.getElementById('stickerSearch');
+const stickerResults = document.getElementById('stickerResults');
+const stickerClose = document.getElementById('stickerClose');
 // Image viewer modal elements
 const imageViewer = document.getElementById('imageViewer');
 const imageViewerImg = document.getElementById('imageViewerImg');
@@ -76,8 +84,26 @@ const imageDownload = document.getElementById('imageDownload');
 const imageClose = document.getElementById('imageClose');
 const peerName = document.getElementById('peerName');
 const peerStatus = document.getElementById('peerStatus');
+const peerAvatar = document.getElementById('peerAvatar');
 const typingIndicator = document.getElementById('typingIndicator');
 const typingIndicators = document.getElementById('typingIndicators');
+// Stories UI elements
+const storiesBar = document.getElementById('storiesBar');
+const addStoryBtn = document.getElementById('addStoryBtn');
+const storyList = document.getElementById('storyList');
+const storyPicker = document.getElementById('storyPicker');
+const myStoryAvatar = document.getElementById('myStoryAvatar');
+// Story viewer elements
+const storyViewer = document.getElementById('storyViewer');
+const svUserAvatar = document.getElementById('svUserAvatar');
+const svUserName = document.getElementById('svUserName');
+const svTime = document.getElementById('svTime');
+const svProgress = document.getElementById('svProgress');
+const svMedia = document.getElementById('svMedia');
+const svPrev = document.getElementById('svPrev');
+const svNext = document.getElementById('svNext');
+const svClose = document.getElementById('svClose');
+const svMute = document.getElementById('svMute');
 
 // Typing ping control
 let __lastTypingSent = 0;
@@ -122,6 +148,133 @@ const registerTab = document.getElementById('registerTab');
 let currentUser = null;
 let currentUserDoc = null;
 let selectedPeer = null; // { uid, username, isOnline, lastActive }
+
+// ================= Calculator (functional + unlock on passcode) =================
+const CALC = { expr: '', lastResult: null, justEvaluated: false };
+
+function setCalcDisplay(v) {
+  if (!calcDisplay) return;
+  calcDisplay.value = (v === '' || v === null || v === undefined) ? '0' : String(v);
+}
+
+function getStoredPasscode() {
+  try {
+    const v = localStorage.getItem('passcode');
+    if (v && /^\d+$/.test(v)) return v;
+  } catch(_) {}
+  return '1234'; // default fallback
+}
+
+function maybeUnlock(expr) {
+  const s = (expr || '').trim();
+  if (/^\d+$/.test(s) && s === getStoredPasscode()) {
+    // Unlock: hide calculator, show chat UI
+    try {
+      if (calculatorScreen) { calculatorScreen.classList.add('hidden'); calculatorScreen.setAttribute('aria-hidden','true'); }
+      if (chatUI) { chatUI.classList.remove('hidden'); chatUI.setAttribute('aria-hidden','false'); }
+      if (calcHint) calcHint.textContent = 'Unlocked';
+    } catch(_) {}
+    return true;
+  }
+  return false;
+}
+
+function evalExpression(expr) {
+  // Sanitize allowed characters: digits, operators, decimal, spaces
+  const s = (expr || '').trim();
+  if (!s) return 0;
+  if (!/^[0-9+\-*/.()\s]+$/.test(s)) throw new Error('Invalid');
+  // Avoid trailing operators
+  if (/[+\-*/.]$/.test(s)) throw new Error('Incomplete');
+  // Evaluate safely via Function after validation
+  // Replace consecutive operators like '--' handled by JS (as unary)
+  // Limit to reasonable length
+  if (s.length > 128) throw new Error('Too long');
+  // eslint-disable-next-line no-new-func
+  const fn = new Function(`return (${s})`);
+  const out = fn();
+  if (typeof out !== 'number' || !isFinite(out)) throw new Error('Math error');
+  return out;
+}
+
+function handleCalcKey(k) {
+  if (!calcDisplay) return;
+  const type = String(k);
+  if (type === 'C') { CALC.expr = ''; CALC.justEvaluated = false; setCalcDisplay('0'); return; }
+  if (type === 'DEL') {
+    if (CALC.justEvaluated) { CALC.expr = ''; CALC.justEvaluated = false; setCalcDisplay('0'); return; }
+    CALC.expr = CALC.expr.slice(0, -1);
+    setCalcDisplay(CALC.expr || '0');
+    return;
+  }
+  if (type === '=') {
+    // Unlock check first
+    if (maybeUnlock(CALC.expr)) { return; }
+    // Otherwise evaluate
+    try {
+      const res = evalExpression(CALC.expr);
+      CALC.lastResult = res;
+      CALC.expr = String(res);
+      CALC.justEvaluated = true;
+      setCalcDisplay(CALC.expr);
+    } catch(_) {
+      CALC.lastResult = null; CALC.justEvaluated = true; setCalcDisplay('Error');
+    }
+    return;
+  }
+  // Numbers and operators
+  const allowed = /^(?:[0-9]|[+\-*/]|\.)$/;
+  if (!allowed.test(type)) return;
+  if (CALC.justEvaluated && /[0-9.]/.test(type)) {
+    // Start fresh if user types a digit after evaluation
+    CALC.expr = '';
+    CALC.justEvaluated = false;
+  }
+  // Avoid two operators in a row
+  if (/[+\-*/.]/.test(type) && /[+\-*/.]$/.test(CALC.expr)) {
+    CALC.expr = CALC.expr.slice(0, -1) + type;
+  } else {
+    CALC.expr += type;
+  }
+  setCalcDisplay(CALC.expr);
+}
+
+if (calcGrid) {
+  calcGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.key');
+    if (!btn) return;
+    const k = btn.getAttribute('data-key');
+    if (k) handleCalcKey(k);
+  });
+}
+
+// Keyboard support
+window.addEventListener('keydown', (e) => {
+  if (!calculatorScreen || calculatorScreen.classList.contains('hidden')) return; // only when calc visible
+  // Only react to keys when the event target is within the calculator, so we don't block Backspace in forms
+  const inCalc = calculatorScreen.contains(e.target);
+  if (!inCalc) return;
+  // Ignore typing inside other editable elements (except the calculator display itself)
+  const t = e.target;
+  const isEditable = t && (t.isContentEditable || (t.tagName && /INPUT|TEXTAREA|SELECT/.test(t.tagName)));
+  if (isEditable && t !== calcDisplay) return;
+  if (e.key === 'Enter' || e.key === '=') { e.preventDefault(); handleCalcKey('='); return; }
+  if (e.key === 'Backspace') { e.preventDefault(); handleCalcKey('DEL'); return; }
+  if (e.key === 'Escape') { e.preventDefault(); handleCalcKey('C'); return; }
+  const map = { '*':'*','/':'/','+':'+','-':'-','.' :'.' };
+  if (/^[0-9]$/.test(e.key)) { handleCalcKey(e.key); return; }
+  if (map[e.key]) { handleCalcKey(map[e.key]); return; }
+});
+
+// Persist passcode from Register form (if used)
+if (registerBtn) {
+  registerBtn.addEventListener('click', () => {
+    try {
+      const v = regPasscode && regPasscode.value ? regPasscode.value.replace(/\D+/g,'') : '';
+      if (v) localStorage.setItem('passcode', v);
+    } catch(_) {}
+  });
+}
 
 // ===== Registration avatar helpers =====
 let __regPendingAvatar = null; // { url, thumbUrl }
@@ -190,6 +343,14 @@ const CLOUDINARY = {
   unsignedPreset: 'chat-images',
   uploadUrl: 'https://api.cloudinary.com/v1_1/dqjj94zt3/image/upload'
 };
+
+// For Stories, use auto upload to support both images and videos
+const CLOUDINARY_AUTO_UPLOAD_URL = 'https://api.cloudinary.com/v1_1/dqjj94zt3/auto/upload';
+
+// Tenor API key: set window.TENOR_API_KEY in firebase-config.js
+const TENOR_API_KEY = window.TENOR_API_KEY || '';
+// Tenor sticker pagination state
+let __sticker = { query: 'sticker', next: null, loading: false, requestId: 0 };
 
 // Enforce digits-only for the registration passcode input while typing/pasting
 if (regPasscode) {
@@ -348,6 +509,584 @@ if (imageBtn && imagePicker) {
   imagePicker.addEventListener('change', async () => {
     const f = imagePicker.files && imagePicker.files[0];
     if (f) await handleImageFile(f);
+  });
+}
+
+// ================= Stories (TikTok-like) =================
+// Local state/cache
+let storiesUnsub = null;
+let __userCache = new Map(); // uid -> user doc
+let __storiesByOwner = new Map(); // ownerUid -> [{id, ...data}]
+let __storyOrder = []; // list of ownerUids in display order
+let __viewer = { ownerUid: null, idx: 0, timer: null };
+
+async function getUserCached(uid) {
+  if (!uid) return null;
+  if (__userCache.has(uid)) return __userCache.get(uid);
+  try {
+    const snap = await usersCol.doc(uid).get();
+    const data = snap.data() || { uid };
+    __userCache.set(uid, data);
+    return data;
+  } catch(_) { return { uid }; }
+}
+
+function nowTs() { return new Date(nowMs()); }
+
+function subscribeStories() {
+  if (storiesUnsub) { try { storiesUnsub(); } catch(_) {} storiesUnsub = null; }
+  if (!storiesBar) return;
+  // Listen to recent stories; filter client-side for expiry to avoid index requirement
+  const q = storiesCol.orderBy('createdAt', 'desc').limit(200);
+  storiesUnsub = q.onSnapshot(async (snap) => {
+    __storiesByOwner.clear();
+    __storyOrder = [];
+    const now = nowTs().getTime();
+    snap.forEach(doc => {
+      const d = doc.data();
+      if (!d) return;
+      // Allow fallback if expiresAt missing: createdAt + 24h
+      let exp = 0;
+      if (d.expiresAt && d.expiresAt.toDate) {
+        exp = d.expiresAt.toDate().getTime();
+      } else if (d.createdAt && d.createdAt.toDate) {
+        exp = d.createdAt.toDate().getTime() + 24*60*60*1000;
+      }
+      if (!exp || exp <= now) return; // skip expired
+      const owner = d.ownerUid;
+      if (!owner) return;
+      const arr = __storiesByOwner.get(owner) || [];
+      arr.push({ id: doc.id, ...d });
+      __storiesByOwner.set(owner, arr);
+    });
+    // Sort per owner by createdAt asc for playback
+    __storiesByOwner.forEach((arr, owner) => {
+      arr.sort((a, b) => {
+        const at = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+        const bt = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+        return at - bt;
+      });
+    });
+    // Owners order: current user first (if they have stories), then others by latest story desc
+    const owners = Array.from(__storiesByOwner.keys());
+    owners.sort((a, b) => {
+      if (currentUser && a === currentUser.uid) return -1;
+      if (currentUser && b === currentUser.uid) return 1;
+      const la = (__storiesByOwner.get(a).slice(-1)[0]?.createdAt?.toDate?.() || 0);
+      const lb = (__storiesByOwner.get(b).slice(-1)[0]?.createdAt?.toDate?.() || 0);
+      const ams = la ? la.getTime() : 0; const bms = lb ? lb.getTime() : 0;
+      return bms - ams;
+    });
+    __storyOrder = owners;
+    renderStoriesBar();
+  });
+}
+
+function renderStoriesBar() {
+  if (!storiesBar || !storyList) return;
+  // Show bar whenever a user is logged in (so "Your Story" button is visible)
+  const showBar = !!currentUser;
+  storiesBar.classList.toggle('hidden', !showBar);
+  storyList.innerHTML = '';
+  if (!showBar) return;
+  const frag = document.createDocumentFragment();
+  __storyOrder.forEach((uid) => {
+    const cached = __userCache.get(uid);
+    const u0 = cached || { uid };
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'story-item';
+    btn.dataset.owner = uid;
+    const ring = document.createElement('div'); ring.className = 'story-avatar';
+    const av = document.createElement('div'); av.className = 'avatar';
+    renderAvatar(av, u0);
+    ring.appendChild(av);
+    // Seen state: if latest story for this owner is already seen, show glassy gray ring
+    try { if (isOwnerSeen && isOwnerSeen(uid)) ring.classList.add('seen'); } catch(_) {}
+    const lab = document.createElement('div'); lab.className = 'label'; lab.textContent = displayName(u0);
+    btn.appendChild(ring); btn.appendChild(lab);
+    frag.appendChild(btn);
+    // Update once user loads if not cached
+    if (!cached) {
+      getUserCached(uid).then((u) => {
+        try {
+          renderAvatar(av, u);
+          lab.textContent = displayName(u);
+        } catch(_) {}
+      });
+    }
+  });
+  storyList.appendChild(frag);
+}
+
+// Seen state helpers: track lastSeen timestamp per owner (per logged-in user)
+function seenStorageKey() {
+  const uid = currentUser && currentUser.uid ? currentUser.uid : 'anon';
+  return `storiesSeen:${uid}`;
+}
+
+function getSeenMap() {
+  try {
+    const raw = localStorage.getItem(seenStorageKey());
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return (obj && typeof obj === 'object') ? obj : {};
+  } catch(_) { return {}; }
+}
+
+function saveSeenMap(map) {
+  try { localStorage.setItem(seenStorageKey(), JSON.stringify(map || {})); } catch(_) {}
+}
+
+function latestStoryMsForOwner(uid) {
+  try {
+    const arr = __storiesByOwner.get(uid) || [];
+    if (!arr.length) return 0;
+    const last = arr[arr.length - 1];
+    const d = last && last.createdAt && last.createdAt.toDate ? last.createdAt.toDate() : null;
+    return d ? d.getTime() : 0;
+  } catch(_) { return 0; }
+}
+
+function isOwnerSeen(uid) {
+  try {
+    const map = getSeenMap();
+    const lastSeen = map && typeof map[uid] === 'number' ? map[uid] : 0;
+    const latest = latestStoryMsForOwner(uid);
+    return lastSeen >= latest && latest > 0;
+  } catch(_) { return false; }
+}
+
+function markOwnerSeen(uid) {
+  try {
+    const latest = latestStoryMsForOwner(uid) || nowMs();
+    const map = getSeenMap();
+    if (map[uid] !== latest) { map[uid] = latest; saveSeenMap(map); }
+    // Update UI ring immediately
+    if (storyList) {
+      const ring = storyList.querySelector(`.story-item[data-owner="${uid}"] .story-avatar`);
+      if (ring) ring.classList.add('seen');
+    }
+  } catch(_) {}
+}
+
+// ================= My Story Upload Progress (circular ring) =================
+function getMyStoryAvatarRing() {
+  try { return document.querySelector('#addStoryBtn .story-avatar.me'); } catch(_) { return null; }
+}
+
+function ensureMyStoryProgressOverlay() {
+  const ring = getMyStoryAvatarRing();
+  if (!ring) return null;
+  ring.classList.add('uploading');
+  let prog = ring.querySelector('.upload-progress');
+  if (!prog) {
+    prog = document.createElement('div');
+    prog.className = 'upload-progress';
+    ring.appendChild(prog);
+  }
+  try { prog.style.setProperty('--pct', '0%'); } catch(_) {}
+  return prog;
+}
+
+function updateMyStoryProgress(p) {
+  const ring = getMyStoryAvatarRing();
+  if (!ring) return;
+  let prog = ring.querySelector('.upload-progress');
+  if (!prog) prog = ensureMyStoryProgressOverlay();
+  const pct = Math.max(0, Math.min(100, Number(p) || 0));
+  try { prog && prog.style.setProperty('--pct', pct + '%'); } catch(_) {}
+}
+
+function clearMyStoryProgress() {
+  const ring = getMyStoryAvatarRing();
+  if (!ring) return;
+  ring.classList.remove('uploading');
+  const prog = ring.querySelector('.upload-progress');
+  if (prog) try { prog.remove(); } catch(_) {}
+}
+
+// ===== Story viewer helpers (progress + audio pref) =====
+function updateSvProgress(pct) {
+  try {
+    if (svProgress) svProgress.style.setProperty('--sv', Math.max(0, Math.min(100, Number(pct) || 0)) + '%');
+  } catch(_) {}
+}
+
+function getStoryMutedPref() {
+  try { return localStorage.getItem('storiesMuted') !== 'false'; } catch(_) { return true; }
+}
+function setStoryMutedPref(muted) {
+  try { localStorage.setItem('storiesMuted', muted ? 'true' : 'false'); } catch(_) {}
+}
+function updateMuteBtn(muted) {
+  try {
+    if (!svMute) return;
+    svMute.dataset.muted = String(!!muted);
+    svMute.setAttribute('aria-label', muted ? 'Unmute video' : 'Mute video');
+    svMute.hidden = false;
+  } catch(_) {}
+}
+
+function openStoryViewer(ownerUid, startIdx = 0) {
+  const list = __storiesByOwner.get(ownerUid) || [];
+  if (!list.length || !storyViewer) return;
+  __viewer.ownerUid = ownerUid;
+  __viewer.idx = Math.max(0, Math.min(startIdx, list.length - 1));
+  // Mark this owner's latest story as seen when opening viewer
+  try { markOwnerSeen(ownerUid); } catch(_) {}
+  storyViewer.classList.remove('hidden');
+  storyViewer.setAttribute('aria-hidden', 'false');
+  showCurrentStory();
+}
+
+function closeStoryViewer() {
+  if (__viewer.timer) { clearTimeout(__viewer.timer); __viewer.timer = null; }
+  if (!storyViewer) return;
+  // Stop media playback if video
+  try { const v = svMedia && svMedia.querySelector('video'); if (v) { v.pause(); v.src = ''; } } catch(_) {}
+  __viewer.videoEl = null;
+  try { if (svMute) svMute.hidden = true; } catch(_) {}
+  storyViewer.classList.add('hidden');
+  storyViewer.setAttribute('aria-hidden', 'true');
+}
+
+function showCurrentStory(direction = 0) {
+  if (!svMedia) return;
+  // Clear any previous timers or video playback to avoid premature auto-advance
+  if (__viewer.timer) { try { clearTimeout(__viewer.timer); } catch(_) {} __viewer.timer = null; }
+  try { if (__viewer.videoEl) { __viewer.videoEl.pause(); } } catch(_) {}
+  __viewer.videoEl = null;
+  try { if (svMute) svMute.hidden = true; } catch(_) {}
+  const list = __storiesByOwner.get(__viewer.ownerUid) || [];
+  if (!list.length) { closeStoryViewer(); return; }
+  __viewer.idx = Math.max(0, Math.min(__viewer.idx + direction, list.length - 1));
+  const item = list[__viewer.idx];
+  // Header meta
+  getUserCached(__viewer.ownerUid).then(u => {
+    if (svUserName) svUserName.textContent = displayName(u);
+    try { if (svUserAvatar) renderAvatar(svUserAvatar, u); } catch(_) {}
+  });
+  if (svTime) {
+    try {
+      const d = item.createdAt && item.createdAt.toDate ? item.createdAt.toDate() : null;
+      svTime.textContent = d ? formatTimeLocal(d) : '—';
+    } catch(_) { svTime.textContent = '—'; }
+  }
+  // Progress reset
+  updateSvProgress(0);
+  // Media
+  svMedia.innerHTML = '';
+  const isVideo = item.mediaType === 'video' || (/\/video\//.test(item.mediaUrl));
+  if (isVideo) {
+    const v = document.createElement('video');
+    v.src = item.mediaUrl;
+    v.autoplay = true; v.muted = getStoryMutedPref(); v.playsInline = true; v.controls = false;
+    v.addEventListener('ended', () => nextStory());
+    svMedia.appendChild(v);
+    // Show audio toggle for videos
+    __viewer.videoEl = v;
+    try { if (svMute) { updateMuteBtn(v.muted); svMute.hidden = false; } } catch(_) {}
+    // Animate progress via timeupdate
+    v.addEventListener('timeupdate', () => {
+      try {
+        const pct = v.duration ? Math.min(100, Math.max(0, (v.currentTime / v.duration) * 100)) : 0;
+        updateSvProgress(pct);
+      } catch(_) {}
+    });
+    // Start playback
+    v.play().catch(()=>{});
+  } else {
+    const img = document.createElement('img');
+    img.alt = 'Story';
+    img.src = item.mediaUrl;
+    svMedia.appendChild(img);
+    // Auto-advance after 5s with progress animation
+    const duration = 5000;
+    const started = performance.now();
+    if (__viewer.timer) clearTimeout(__viewer.timer);
+    __viewer.timer = setTimeout(() => nextStory(), duration);
+    const raf = () => {
+      const t = performance.now() - started;
+      const pct = Math.min(100, (t / duration) * 100);
+      updateSvProgress(pct);
+      if (pct < 100 && storyViewer && !storyViewer.classList.contains('hidden')) requestAnimationFrame(raf);
+    };
+    requestAnimationFrame(raf);
+  }
+}
+
+function nextStory() {
+  const list = __storiesByOwner.get(__viewer.ownerUid) || [];
+  if (__viewer.idx < list.length - 1) {
+    __viewer.idx += 1; showCurrentStory(0); return;
+  }
+  // Move to next owner
+  const ownerIdx = __storyOrder.indexOf(__viewer.ownerUid);
+  if (ownerIdx >= 0 && ownerIdx < __storyOrder.length - 1) {
+    openStoryViewer(__storyOrder[ownerIdx + 1], 0); return;
+  }
+  closeStoryViewer();
+}
+
+function prevStory() {
+  if (__viewer.idx > 0) { __viewer.idx -= 1; showCurrentStory(0); return; }
+  const ownerIdx = __storyOrder.indexOf(__viewer.ownerUid);
+  if (ownerIdx > 0) { openStoryViewer(__storyOrder[ownerIdx - 1], -0); return; }
+  closeStoryViewer();
+}
+
+// Upload a story (image or video) via Cloudinary auto/upload
+async function uploadStoryFile(file, onProgress) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLOUDINARY.unsignedPreset);
+  fd.append('folder', 'stories');
+  // Prefer XHR to report progress
+  const json = await new Promise((resolve, reject) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', CLOUDINARY_AUTO_UPLOAD_URL);
+      xhr.upload.onprogress = (e) => {
+        if (onProgress && e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          try { onProgress(pct); } catch(_){}
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(err); }
+        } else { reject(new Error('Upload failed')); }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(fd);
+    } catch (err) { reject(err); }
+  });
+  const secureUrl = json.secure_url;
+  if (!secureUrl) throw new Error('No URL from Cloudinary');
+  const publicId = json.public_id || '';
+  const resourceType = json.resource_type || '';
+  const mediaType = resourceType === 'video' ? 'video' : 'image';
+  return { url: secureUrl, publicId, mediaType };
+}
+
+async function handleAddStoryFile(file) {
+  if (!currentUser || !file) return;
+  const isImage = /^image\//i.test(file.type);
+  const isVideo = /^video\//i.test(file.type);
+  if (!isImage && !isVideo) { alert('Only image or video allowed'); return; }
+  // Size guard: images <= 5MB, videos <= 20MB
+  const max = isImage ? 5*1024*1024 : 20*1024*1024;
+  if (file.size > max) { alert('File too large'); return; }
+  // Optional: compress image
+  let uploadFile = file;
+  if (isImage) {
+    try { uploadFile = await compressImage(file, { maxW: 1080, quality: 0.8 }); } catch(_) {}
+  }
+  // Show simple progress in messages area to reuse UI
+  const ui = createChatUploadProgress();
+  if (ui) ui && ui.update(0);
+  // Show circular progress on "Your Story"
+  try { ensureMyStoryProgressOverlay(); updateMyStoryProgress(0); if (addStoryBtn) addStoryBtn.disabled = true; } catch(_) {}
+  try {
+    const up = await uploadStoryFile(uploadFile, (p)=> { ui && ui.update(p); try { updateMyStoryProgress(p); } catch(_) {} });
+    const created = firebase.firestore.FieldValue.serverTimestamp();
+    const expiresAt = firebase.firestore.Timestamp.fromMillis(nowMs() + 24*60*60*1000);
+    await storiesCol.add({
+      ownerUid: currentUser.uid,
+      mediaUrl: up.url,
+      mediaType: up.mediaType,
+      publicId: up.publicId,
+      createdAt: created,
+      expiresAt: expiresAt,
+    });
+    if (ui) ui.done();
+    try { updateMyStoryProgress(100); } catch(_) {}
+  } catch (e) {
+    if (ui) ui.error('Story upload failed');
+    try { console.error('Story upload failed', e); } catch(_) {}
+  } finally {
+    try { clearMyStoryProgress(); if (addStoryBtn) addStoryBtn.disabled = false; } catch(_) {}
+  }
+}
+
+// Wire buttons
+if (addStoryBtn && storyPicker) {
+  addStoryBtn.addEventListener('click', () => storyPicker.click());
+  storyPicker.addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) await handleAddStoryFile(f);
+    e.target.value = '';
+  });
+}
+if (storyList) {
+  storyList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.story-item');
+    if (!btn) return;
+    const uid = btn.dataset.owner;
+    if (uid) openStoryViewer(uid, 0);
+  });
+}
+if (svClose) svClose.addEventListener('click', () => closeStoryViewer());
+if (svNext) svNext.addEventListener('click', () => nextStory());
+if (svPrev) svPrev.addEventListener('click', () => prevStory());
+if (svMute) svMute.addEventListener('click', () => {
+  const v = __viewer && __viewer.videoEl;
+  if (!v) return;
+  const newMuted = !v.muted;
+  v.muted = newMuted;
+  setStoryMutedPref(newMuted);
+  updateMuteBtn(newMuted);
+  try { v.play(); } catch(_) {}
+});
+
+// ================= Stickers (Tenor) =================
+function toggleStickerPicker(forceOpen) {
+  if (!stickerPicker) return;
+  const open = forceOpen ?? stickerPicker.classList.contains('hidden');
+  if (open) {
+    stickerPicker.classList.remove('hidden');
+    stickerPicker.setAttribute('aria-hidden', 'false');
+    // focus search
+    setTimeout(() => { try { stickerSearch && stickerSearch.focus(); } catch(_){} }, 0);
+    // Initial load
+    try { performStickerSearch(stickerSearch && stickerSearch.value ? stickerSearch.value : 'sticker'); } catch(_) {}
+  } else {
+    stickerPicker.classList.add('hidden');
+    stickerPicker.setAttribute('aria-hidden', 'true');
+  }
+}
+
+async function performStickerSearch(q, opts = {}) {
+  if (!stickerResults) return;
+  const { append = false } = opts;
+  if (!TENOR_API_KEY) {
+    stickerResults.innerHTML = '<div class="sp-empty">Add TENOR API KEY to enable stickers.</div>';
+    return;
+  }
+  const query = (q && q.trim()) || 'sticker';
+  // Manage state
+  if (!append) {
+    __sticker.query = query;
+    __sticker.next = null;
+  }
+  if (!append) {
+    stickerResults.innerHTML = '<div class="sp-loading">Searching…</div>';
+  } else {
+    // show bottom loader
+    const loading = document.createElement('div');
+    loading.className = 'sp-loading';
+    loading.textContent = 'Loading more…';
+    loading.dataset.role = 'more-loading';
+    loading.style.gridColumn = '1 / -1';
+    stickerResults.appendChild(loading);
+  }
+  const rid = ++__sticker.requestId;
+  __sticker.loading = true;
+  try {
+    const pos = append && __sticker.next ? `&pos=${encodeURIComponent(__sticker.next)}` : '';
+    const url = `https://tenor.googleapis.com/v2/search?key=${encodeURIComponent(TENOR_API_KEY)}&q=${encodeURIComponent(query)}&client_key=WhisperCalc&limit=28&media_filter=tinygif,mediumgif,webp,webp_transparent${pos}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Search failed');
+    const data = await res.json();
+    if (rid !== __sticker.requestId) return; // stale
+    __sticker.next = data.next || null;
+    const items = Array.isArray(data.results) ? data.results : [];
+    const mapped = items.map(r => {
+      const fm = r.media_formats || {};
+      const thumb = (fm.tinygif && fm.tinygif.url) || (fm.webp && fm.webp.url) || (fm.mediumgif && fm.mediumgif.url) || r.itemurl || '';
+      const full = (fm.gif && fm.gif.url) || (fm.mediumgif && fm.mediumgif.url) || (fm.webp && fm.webp.url) || thumb;
+      return { id: r.id || '', thumb, url: full };
+    }).filter(x => x.url);
+    renderStickerResults(mapped, { append });
+  } catch (e) {
+    try { console.error('Tenor search error', e); } catch(_){ }
+    if (!append) {
+      stickerResults.innerHTML = '<div class="sp-empty">Failed to load stickers.</div>';
+    }
+  } finally {
+    __sticker.loading = false;
+    // remove bottom loader if any
+    const more = stickerResults.querySelector('[data-role="more-loading"]');
+    if (more) more.remove();
+  }
+}
+
+function renderStickerResults(list, { append = false } = {}) {
+  if (!stickerResults) return;
+  if (!list || list.length === 0) {
+    if (!append) stickerResults.innerHTML = '<div class="sp-empty">No results</div>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  list.forEach(item => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sp-item';
+    btn.title = 'Send sticker';
+    btn.dataset.url = item.url;
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = 'Sticker';
+    img.src = item.thumb || item.url;
+    btn.appendChild(img);
+    frag.appendChild(btn);
+  });
+  if (!append) {
+    stickerResults.innerHTML = '';
+  } else {
+    // if previously empty state present, clear it
+    const empty = stickerResults.querySelector('.sp-empty');
+    if (empty) empty.remove();
+  }
+  stickerResults.appendChild(frag);
+}
+
+async function sendSticker(url) {
+  try {
+    if (!currentUser || !selectedPeer || !url) return;
+    const chatId = getChatId(currentUser.uid, selectedPeer.uid);
+    await chatsCol.doc(chatId).collection('messages').add({
+      from: currentUser.uid,
+      type: 'sticker',
+      stickerUrl: url,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    // Optimistic UX: close picker and scroll
+    toggleStickerPicker(false);
+    setTimeout(() => { try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch(_){ } }, 0);
+  } catch(e) {
+    try { console.error('sendSticker failed', e); } catch(_){}
+  }
+}
+
+// Wire up picker UI
+if (stickerBtn) {
+  if (!TENOR_API_KEY) {
+    stickerBtn.title = 'Add TENOR API KEY to enable stickers';
+  }
+  stickerBtn.addEventListener('click', () => toggleStickerPicker());
+}
+if (stickerClose) stickerClose.addEventListener('click', () => toggleStickerPicker(false));
+if (stickerSearch) {
+  let t = null;
+  stickerSearch.addEventListener('input', () => {
+    clearTimeout(t);
+    t = setTimeout(() => performStickerSearch(stickerSearch.value), 300);
+  });
+}
+if (stickerResults) {
+  stickerResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('.sp-item');
+    if (btn && btn.dataset.url) sendSticker(btn.dataset.url);
+  });
+  // Infinite scroll: load more when near bottom
+  stickerResults.addEventListener('scroll', () => {
+    if (!__sticker || __sticker.loading || !__sticker.next) return;
+    const { scrollTop, scrollHeight, clientHeight } = stickerResults;
+    if (scrollTop + clientHeight >= scrollHeight - 300) {
+      performStickerSearch(__sticker.query, { append: true });
+    }
   });
 }
 
@@ -1104,9 +1843,12 @@ if (saveProfileBtn) {
       currentUserDoc = snap.data();
       meName.textContent = currentUserDoc.username || '(no username)';
       renderMeAvatar(currentUserDoc);
+      // Render "Your Story" avatar on the add button
+      try { if (myStoryAvatar) { myStoryAvatar.textContent = ''; renderAvatar(myStoryAvatar, currentUserDoc); } } catch(_) {}
       __pendingAvatar = null;
       if (profileModal && profileModal.close) profileModal.close();
       subscribeUsers(); // refresh list
+      subscribeStories(); // refresh stories
     } catch(e) {
       if (profileError) profileError.textContent = e.message;
     }
@@ -1350,6 +2092,7 @@ function showChat(){
   // Show user list first; hide chat area until a peer is selected
   peerName.textContent = 'Select a user';
   peerStatus.textContent = '—';
+  try { if (peerAvatar) peerAvatar.textContent = ''; } catch(_) {}
   setChatContentVisible(false);
   // Focus search for quick filtering
   try { userSearch.focus(); } catch(_) {}
@@ -1476,6 +2219,8 @@ function subscribeUsers(){
                   preview = 'Message deleted';
                 } else if (m.type === 'image') {
                   preview = 'Image';
+                } else if (m.type === 'sticker') {
+                  preview = 'Sticker';
                 } else if (m.type === 'tiktok') {
                   preview = 'TikTok';
                 } else if (typeof m.text === 'string' && m.text.trim()) {
@@ -1598,12 +2343,30 @@ function isMobile(){ try { return window.innerWidth <= 900; } catch(_) { return 
 function openChatPanel(){ try { const el = document.getElementById('chatUI'); if (el) el.classList.add('chat-open'); } catch(_) {} }
 function closeChatPanel(){ try { const el = document.getElementById('chatUI'); if (el) el.classList.remove('chat-open'); } catch(_) {} }
 
+// Trigger chat panel entry animation
+function animateChatOpen(){
+  try {
+    const panel = document.querySelector('#chatUI .chat-panel');
+    if (!panel) return;
+    // Restart animation if already running
+    panel.classList.remove('opening');
+    // Force reflow to allow re-adding the class to retrigger animation
+    void panel.offsetWidth;
+    panel.classList.add('opening');
+    const onEnd = () => { panel.classList.remove('opening'); panel.removeEventListener('animationend', onEnd); };
+    panel.addEventListener('animationend', onEnd);
+    // Fallback cleanup in case animationend doesn't fire
+    setTimeout(() => { panel.classList.remove('opening'); }, 600);
+  } catch(_) {}
+}
+
 // Back button: return to user list on mobile
 try {
   const backBtnEl = document.getElementById('backBtn');
   if (backBtnEl) backBtnEl.addEventListener('click', () => {
     selectedPeer = null;
     try { userList.querySelectorAll('.user-item.active').forEach(el => el.classList.remove('active')); } catch(_) {}
+    try { if (peerAvatar) peerAvatar.textContent = ''; } catch(_) {}
     closeChatPanel();
   });
 } catch(_) {}
@@ -1625,9 +2388,12 @@ async function selectPeer(u){
   selectedPeer = u;
   peerName.textContent = displayName(u);
   peerStatus.textContent = u.isOnline ? 'Active now' : formatLastActive(u.lastActive);
+  try { if (peerAvatar) renderAvatar(peerAvatar, u); } catch(_) {}
   setChatContentVisible(true);
   // Mobile: open chat panel and hide user list
   try { if (window.innerWidth <= 900) openChatPanel(); } catch(_) {}
+  // Animate chat panel appearing
+  animateChatOpen();
   // Highlight active list item
   try {
     userList.querySelectorAll('.user-item.active').forEach(el => el.classList.remove('active'));
@@ -1672,6 +2438,7 @@ async function selectPeer(u){
     const data = doc.data();
     lastPeerSnapshot = data;
     peerStatus.textContent = statusTextFromLastActive(data?.lastActive);
+    try { if (peerAvatar && data) renderAvatar(peerAvatar, { ...u, ...data }); } catch(_) {}
   });
   // Refresh time-ago every 15s without Firestore changes
   peerStatusTimer = setInterval(() => {
@@ -1779,6 +2546,17 @@ function renderMessage(m) {
     img.src = m.thumbUrl || m.imageUrl;
     img.style.cursor = 'zoom-in';
     img.addEventListener('click', () => openImageViewer(m.imageUrl || img.src));
+    media.appendChild(img);
+    body.appendChild(media);
+  } else if (m.type === 'sticker' && m.stickerUrl) {
+    const media = document.createElement('div');
+    media.className = 'media';
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = 'Sticker';
+    img.src = m.stickerUrl;
+    img.style.cursor = 'zoom-in';
+    img.addEventListener('click', () => openImageViewer(m.stickerUrl));
     media.appendChild(img);
     body.appendChild(media);
   } else if (m.type === 'tiktok' && m.url) {
@@ -2189,7 +2967,10 @@ byId('authError').textContent = 'Complete profile: username + passcode.';
       byId('authError').textContent = 'Complete profile: username + passcode.';
     }
 
+    // Start subscriptions
     subscribeUsers();
+    subscribeStories();
+    renderStoriesBar();
   } else {
     authBtn.style.display = '';
     logoutBtn.style.display = 'none';
@@ -2201,6 +2982,12 @@ byId('authError').textContent = 'Complete profile: username + passcode.';
     stopPresence();
     hideChat();
     document.body.classList.remove('chat-open');
+    // Stop stories subscription and clear UI
+    if (storiesUnsub) { try { storiesUnsub(); } catch(_) {} storiesUnsub = null; }
+    __storiesByOwner.clear();
+    __storyOrder = [];
+    if (storyList) storyList.innerHTML = '';
+    renderStoriesBar();
   }
 });
 
@@ -2215,6 +3002,7 @@ if (backBtn) {
     if (typingIndicators) { typingIndicators.classList.add('hidden'); try { typingIndicators.innerHTML = ''; } catch(_){} }
     peerName.textContent = 'Select a user';
     peerStatus.textContent = '—';
+    try { if (peerAvatar) peerAvatar.textContent = ''; } catch(_) {}
     messagesEl.innerHTML = '';
     setChatContentVisible(false);
     backBtn.style.display = 'none';

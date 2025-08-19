@@ -65,6 +65,17 @@
             </div>
           </div>
         </div>
+        <!-- Stories bar moved under Me card -->
+        <div id="storiesBar" class="stories-bar" aria-label="Stories">
+          <button id="addStoryBtn" class="story-item me" type="button" aria-label="Add story">
+            <div class="story-avatar me">
+              <div class="avatar" id="myStoryAvatar" aria-hidden="true"></div>
+              <span class="plus" aria-hidden="true">+</span>
+            </div>
+            <div class="label">Your Story</div>
+          </button>
+          <div id="storyList" class="story-list" role="list" aria-label="Friends' stories"></div>
+        </div>
         <div class="search">
           <input id="userSearch" type="text" placeholder="Search users..." />
         </div>
@@ -72,10 +83,21 @@
       </aside>
       <div class="chat-panel">
         <div class="chat-header">
-          <button id="backBtn" class="btn ghost back" aria-label="Back" title="Back" style="display:none;">← Back</button>
+          <button id="backBtn" class="btn ghost back" aria-label="Back" title="Back" style="display:none;">
+            <span class="icon" aria-hidden="true">
+              <!-- Back arrow icon SVG -->
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="label sr-only">Back</span>
+          </button>
           <div class="peer">
-            <div id="peerName">Select a user</div>
-            <div id="peerStatus" class="status">—</div>
+            <div id="peerAvatar" class="avatar" aria-hidden="true"></div>
+            <div class="meta">
+              <div id="peerName">Select a user</div>
+              <div id="peerStatus" class="status">—</div>
+            </div>
           </div>
         </div>
         <!-- Empty state shown until a user is selected -->
@@ -97,10 +119,15 @@
           <button id="replyCancel" class="rp-cancel" aria-label="Cancel reply">×</button>
         </div>
         <form id="messageForm" class="message-form">
-          <textarea id="messageInput" rows="1" placeholder="Type a message or paste a TikTok URL..." autocomplete="off" enterkeyhint="enter"></textarea>
-          <button id="soundToggle" class="btn ghost sound-toggle" type="button" aria-label="Toggle send sound">
-            <span class="icon" aria-hidden="true">🔇</span>
-            <span class="label sr-only">Toggle sound</span>
+          <button id="stickerBtn" class="btn ghost sticker-btn" type="button" aria-label="Open sticker picker">
+            <span class="icon" aria-hidden="true">
+              <!-- Sticker icon SVG -->
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path d="M8 4h5.5a2 2 0 0 1 1.4.6l4.5 4.5a2 2 0 0 1 .6 1.4V16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4Z" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M15 4v3a3 3 0 0 0 3 3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span class="label sr-only">Stickers</span>
           </button>
           <button id="imageBtn" class="btn ghost image-btn" type="button" aria-label="Attach image">
             <span class="icon" aria-hidden="true">
@@ -113,6 +140,7 @@
             </span>
             <span class="label sr-only">Attach image</span>
           </button>
+          <textarea id="messageInput" rows="1" placeholder="Type a message or paste a TikTok URL..." autocomplete="off" enterkeyhint="enter"></textarea>
           <button class="btn primary send-btn" type="submit" aria-label="Send">
             <span class="plane" aria-hidden="true">
               <!-- Paper plane send icon SVG -->
@@ -124,6 +152,15 @@
           </button>
         </form>
         <input id="imagePicker" type="file" accept="image/*" style="display:none" />
+        <input id="storyPicker" type="file" accept="image/*,video/*" style="display:none" />
+        <!-- Sticker Picker Panel -->
+        <div id="stickerPicker" class="sticker-picker hidden" role="dialog" aria-modal="false" aria-label="Sticker picker">
+          <div class="sp-header">
+            <input id="stickerSearch" type="search" placeholder="Search stickers..." aria-label="Search stickers" />
+            <button id="stickerClose" class="btn ghost" type="button" aria-label="Close sticker picker">✕</button>
+          </div>
+          <div id="stickerResults" class="sp-grid" aria-live="polite"></div>
+        </div>
       </div>
     </section>
   </div>
@@ -153,6 +190,55 @@
         <button id="imageDownload" class="btn primary" type="button" aria-label="Download image">Download</button>
         <button id="imageClose" class="btn ghost" type="button" aria-label="Close viewer">Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Story viewer modal -->
+  <div id="storyViewer" class="story-viewer hidden" aria-hidden="true" role="dialog" aria-label="Story viewer">
+    <div class="sv-backdrop"></div>
+    <div class="sv-content" role="document">
+      <div class="sv-header">
+        <div id="svUserAvatar" class="avatar" aria-hidden="true"></div>
+        <div class="sv-meta">
+          <div id="svUserName" class="sv-name">—</div>
+          <div id="svTime" class="sv-time">—</div>
+        </div>
+        <button id="svClose" class="btn ghost" type="button" aria-label="Close story">✕</button>
+      </div>
+      <div id="svProgress" class="sv-progress"></div>
+      <div id="svMedia" class="sv-media" aria-live="polite"></div>
+      <button id="svPrev" class="sv-nav left" aria-label="Previous story">
+        <span class="chev" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+            <path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </button>
+      <button id="svNext" class="sv-nav right" aria-label="Next story">
+        <span class="chev" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+            <path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </button>
+      <!-- Mute/Unmute toggle (shown only for videos) -->
+      <button id="svMute" class="sv-audio" type="button" data-muted="true" aria-label="Unmute video" hidden>
+        <span class="icon on" aria-hidden="true">
+          <!-- volume-up icon -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+            <path d="M11 5l-4 4H4v6h3l4 4V5z" stroke="currentColor" stroke-width="1.6" fill="currentColor"/>
+            <path d="M15 9a3 3 0 010 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M17 7a6 6 0 010 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="icon off" aria-hidden="true">
+          <!-- volume-off icon -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+            <path d="M11 5l-4 4H4v6h3l4 4V5z" stroke="currentColor" stroke-width="1.6" fill="currentColor"/>
+            <path d="M16 8l4 8M20 8l-4 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+      </button>
     </div>
   </div>
 

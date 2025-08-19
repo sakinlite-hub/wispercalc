@@ -10,3 +10,6 @@ window.firebaseConfig = {
   messagingSenderId: "614834640121",
   appId: "1:614834640121:web:bd27566a95d9addecffe28"
 };
+
+// Tenor API key for sticker search
+window.TENOR_API_KEY = "AIzaSyCxnG9tDhOTwdBjIZBsusHAcRtSTnHCjrs";
