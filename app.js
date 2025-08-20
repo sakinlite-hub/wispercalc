@@ -745,6 +745,13 @@ function openStoryViewer(ownerUid, startIdx = 0) {
   const list = __storiesByOwner.get(ownerUid) || [];
   if (!list.length || !storyViewer) return;
   __viewer.ownerUid = ownerUid;
+  
+  // If startIdx is 0 (default), check if user has unseen stories
+  // If unseen, start from the latest (last) story instead of first
+  if (startIdx === 0 && !isOwnerSeen(ownerUid) && list.length > 1) {
+    startIdx = list.length - 1; // Start from latest story
+  }
+  
   __viewer.idx = Math.max(0, Math.min(startIdx, list.length - 1));
   // Mark this owner's latest story as seen when opening viewer
   try { markOwnerSeen(ownerUid); } catch(_) {}
@@ -855,7 +862,14 @@ function nextStory() {
 function prevStory() {
   if (__viewer.idx > 0) { __viewer.idx -= 1; showCurrentStory(0); return; }
   const ownerIdx = __storyOrder.indexOf(__viewer.ownerUid);
-  if (ownerIdx > 0) { openStoryViewer(__storyOrder[ownerIdx - 1], -0); return; }
+  if (ownerIdx > 0) { 
+    // Open last story of previous owner for consistent viewing experience
+    const prevOwnerUid = __storyOrder[ownerIdx - 1];
+    const prevOwnerStories = __storiesByOwner.get(prevOwnerUid) || [];
+    const lastStoryIdx = Math.max(0, prevOwnerStories.length - 1);
+    openStoryViewer(prevOwnerUid, lastStoryIdx); 
+    return; 
+  }
   closeStoryViewer();
 }
 
