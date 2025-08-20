@@ -10,6 +10,8 @@ const db = firebase.firestore();
 const usersCol = db.collection('users');
 const chatsCol = db.collection('chats');
 const storiesCol = db.collection('stories');
+const storyLikesCol = db.collection('storyLikes');
+const storyViewsCol = db.collection('storyViews');
 
 // UI Elements
 const authBtn = document.getElementById('authBtn');
@@ -104,6 +106,17 @@ const svPrev = document.getElementById('svPrev');
 const svNext = document.getElementById('svNext');
 const svClose = document.getElementById('svClose');
 const svMute = document.getElementById('svMute');
+const svLike = document.getElementById('svLike');
+const svLikeCount = document.getElementById('svLikeCount');
+const svAnalytics = document.getElementById('svAnalytics');
+const storyAnalyticsModal = document.getElementById('storyAnalyticsModal');
+const closeAnalytics = document.getElementById('closeAnalytics');
+const analyticsViews = document.getElementById('analyticsViews');
+const analyticsLikes = document.getElementById('analyticsLikes');
+const viewsCount = document.getElementById('viewsCount');
+const likesCount = document.getElementById('likesCount');
+const viewersList = document.getElementById('viewersList');
+const likersList = document.getElementById('likersList');
 
 // Typing ping control
 let __lastTypingSent = 0;
@@ -518,7 +531,7 @@ let storiesUnsub = null;
 let __userCache = new Map(); // uid -> user doc
 let __storiesByOwner = new Map(); // ownerUid -> [{id, ...data}]
 let __storyOrder = []; // list of ownerUids in display order
-let __viewer = { ownerUid: null, idx: 0, timer: null };
+let __viewer = { ownerUid: null, idx: 0, timer: null, currentStoryId: null, likesUnsub: null, viewsUnsub: null };
 
 async function getUserCached(uid) {
   if (!uid) return null;
@@ -746,7 +759,14 @@ function closeStoryViewer() {
   // Stop media playback if video
   try { const v = svMedia && svMedia.querySelector('video'); if (v) { v.pause(); v.src = ''; } } catch(_) {}
   __viewer.videoEl = null;
+  __viewer.currentStoryId = null;
+  // Cleanup real-time listeners
+  if (__viewer.likesUnsub) { try { __viewer.likesUnsub(); } catch(_) {} __viewer.likesUnsub = null; }
+  if (__viewer.viewsUnsub) { try { __viewer.viewsUnsub(); } catch(_) {} __viewer.viewsUnsub = null; }
+  // Hide UI elements
   try { if (svMute) svMute.hidden = true; } catch(_) {}
+  try { if (svLike) svLike.hidden = true; } catch(_) {}
+  try { if (svAnalytics) svAnalytics.hidden = true; } catch(_) {}
   storyViewer.classList.add('hidden');
   storyViewer.setAttribute('aria-hidden', 'true');
 }
@@ -775,6 +795,9 @@ function showCurrentStory(direction = 0) {
   }
   // Progress reset
   updateSvProgress(0);
+  // Setup story interactions (likes, views, analytics)
+  __viewer.currentStoryId = item.id;
+  setupStoryInteractions(item);
   // Media
   svMedia.innerHTML = '';
   const isVideo = item.mediaType === 'video' || (/\/video\//.test(item.mediaUrl));
@@ -938,6 +961,246 @@ if (svMute) svMute.addEventListener('click', () => {
   setStoryMutedPref(newMuted);
   updateMuteBtn(newMuted);
   try { v.play(); } catch(_) {}
+});
+
+// ================= Story Likes & Views System =================
+async function trackStoryView(storyId, ownerUid) {
+  if (!currentUser || !storyId) return;
+  try {
+    const viewId = `${storyId}_${currentUser.uid}`;
+    await storyViewsCol.doc(viewId).set({
+      storyId,
+      ownerUid,
+      viewerUid: currentUser.uid,
+      viewedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch(e) {
+    console.warn('Failed to track story view:', e);
+  }
+}
+
+async function toggleStoryLike(storyId, ownerUid) {
+  if (!currentUser || !storyId) return;
+  try {
+    const likeId = `${storyId}_${currentUser.uid}`;
+    const likeRef = storyLikesCol.doc(likeId);
+    const snap = await likeRef.get();
+    
+    if (snap.exists) {
+      // Unlike
+      await likeRef.delete();
+    } else {
+      // Like
+      await likeRef.set({
+        storyId,
+        ownerUid,
+        likerUid: currentUser.uid,
+        likedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  } catch(e) {
+    console.warn('Failed to toggle story like:', e);
+  }
+}
+
+function setupStoryInteractions(story) {
+  if (!story || !currentUser) return;
+  
+  // Cleanup previous listeners
+  if (__viewer.likesUnsub) { try { __viewer.likesUnsub(); } catch(_) {} __viewer.likesUnsub = null; }
+  if (__viewer.viewsUnsub) { try { __viewer.viewsUnsub(); } catch(_) {} __viewer.viewsUnsub = null; }
+  
+  // Track view
+  trackStoryView(story.id, story.ownerUid);
+  
+  // Show like button
+  try { if (svLike) svLike.hidden = false; } catch(_) {}
+  
+  // Show analytics button only for story owner
+  const isOwner = currentUser.uid === story.ownerUid;
+  try { if (svAnalytics) svAnalytics.hidden = !isOwner; } catch(_) {}
+  
+  // Listen to likes for this story
+  __viewer.likesUnsub = storyLikesCol
+    .where('storyId', '==', story.id)
+    .onSnapshot(snap => {
+      const likes = [];
+      let userLiked = false;
+      snap.forEach(doc => {
+        const data = doc.data();
+        likes.push(data);
+        if (data.likerUid === currentUser.uid) userLiked = true;
+      });
+      
+      // Update like button state
+      try {
+        if (svLike) {
+          svLike.dataset.liked = String(userLiked);
+          svLike.setAttribute('aria-label', userLiked ? 'Unlike story' : 'Like story');
+        }
+        if (svLikeCount) svLikeCount.textContent = likes.length || '0';
+      } catch(_) {}
+    });
+}
+
+function openStoryAnalytics() {
+  if (!__viewer.currentStoryId || !storyAnalyticsModal || !currentUser) return;
+  
+  // Only allow story owner to view analytics
+  const ownerUid = __viewer.ownerUid;
+  if (!ownerUid || currentUser.uid !== ownerUid) {
+    console.warn('Analytics access denied: User is not the story owner');
+    return;
+  }
+  
+  storyAnalyticsModal.classList.remove('hidden');
+  storyAnalyticsModal.setAttribute('aria-hidden', 'false');
+  
+  // Load analytics data
+  loadStoryAnalytics(__viewer.currentStoryId);
+}
+
+function closeStoryAnalyticsModal() {
+  if (!storyAnalyticsModal) return;
+  storyAnalyticsModal.classList.add('hidden');
+  storyAnalyticsModal.setAttribute('aria-hidden', 'true');
+}
+
+async function loadStoryAnalytics(storyId) {
+  if (!storyId || !currentUser) return;
+  
+  // Double-check owner permission
+  const ownerUid = __viewer.ownerUid;
+  if (!ownerUid || currentUser.uid !== ownerUid) {
+    console.warn('Analytics loading blocked: User is not the story owner');
+    return;
+  }
+  
+  try {
+    // Load views
+    const viewsSnap = await storyViewsCol.where('storyId', '==', storyId).get();
+    const views = [];
+    viewsSnap.forEach(doc => views.push(doc.data()));
+    
+    // Load likes
+    const likesSnap = await storyLikesCol.where('storyId', '==', storyId).get();
+    const likes = [];
+    likesSnap.forEach(doc => likes.push(doc.data()));
+    
+    // Update counts
+    if (viewsCount) viewsCount.textContent = views.length;
+    if (likesCount) likesCount.textContent = likes.length;
+    
+    // Clear existing lists first
+    if (viewersList) viewersList.innerHTML = '';
+    if (likersList) likersList.innerHTML = '';
+    
+    // Render lists
+    await renderAnalyticsList(viewersList, views, 'viewerUid', 'viewedAt');
+    await renderAnalyticsList(likersList, likes, 'likerUid', 'likedAt');
+    
+    // Debug logging
+    console.log('Analytics loaded:', { views: views.length, likes: likes.length });
+    
+  } catch(e) {
+    console.warn('Failed to load story analytics:', e);
+  }
+}
+
+async function renderAnalyticsList(container, items, userField, timeField) {
+  if (!container) return;
+  
+  // If no items, show empty state
+  if (!items || items.length === 0) {
+    container.innerHTML = '<div class="analytics-empty">📭 No data yet</div>';
+    return;
+  }
+  
+  // Sort by time desc
+  items.sort((a, b) => {
+    const aTime = a[timeField] && a[timeField].toDate ? a[timeField].toDate().getTime() : 0;
+    const bTime = b[timeField] && b[timeField].toDate ? b[timeField].toDate().getTime() : 0;
+    return bTime - aTime;
+  });
+  
+  const fragment = document.createDocumentFragment();
+  
+  for (const item of items) {
+    const uid = item[userField];
+    if (!uid) continue;
+    
+    const user = await getUserCached(uid);
+    const div = document.createElement('div');
+    div.className = 'analytics-item';
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    renderAvatar(avatar, user);
+    
+    const info = document.createElement('div');
+    info.className = 'info';
+    
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = displayName(user);
+    
+    const time = document.createElement('div');
+    time.className = 'time';
+    try {
+      const d = item[timeField] && item[timeField].toDate ? item[timeField].toDate() : null;
+      time.textContent = d ? formatTimeLocal(d) : '—';
+    } catch(_) {
+      time.textContent = '—';
+    }
+    
+    info.appendChild(name);
+    info.appendChild(time);
+    div.appendChild(avatar);
+    div.appendChild(info);
+    fragment.appendChild(div);
+  }
+  
+  container.innerHTML = '';
+  container.appendChild(fragment);
+}
+
+// Event listeners for story interactions
+if (svLike) {
+  svLike.addEventListener('click', () => {
+    if (__viewer.currentStoryId && __viewer.ownerUid) {
+      toggleStoryLike(__viewer.currentStoryId, __viewer.ownerUid);
+    }
+  });
+}
+
+if (svAnalytics) {
+  svAnalytics.addEventListener('click', openStoryAnalytics);
+}
+
+if (closeAnalytics) {
+  closeAnalytics.addEventListener('click', closeStoryAnalyticsModal);
+}
+
+// Analytics modal tab switching
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.analytics-tab');
+  if (!tab) return;
+  
+  const tabName = tab.dataset.tab;
+  if (!tabName) return;
+  
+  // Update tab states
+  document.querySelectorAll('.analytics-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  
+  // Show/hide content based on exact tab name match
+  if (tabName === 'views') {
+    if (analyticsViews) analyticsViews.classList.remove('hidden');
+    if (analyticsLikes) analyticsLikes.classList.add('hidden');
+  } else if (tabName === 'likes') {
+    if (analyticsViews) analyticsViews.classList.add('hidden');
+    if (analyticsLikes) analyticsLikes.classList.remove('hidden');
+  }
 });
 
 // ================= Stickers (Tenor) =================

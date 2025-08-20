@@ -239,6 +239,62 @@
           </svg>
         </span>
       </button>
+      <!-- Like button -->
+      <button id="svLike" class="sv-like" type="button" data-liked="false" aria-label="Like story">
+        <span class="icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span id="svLikeCount" class="count">0</span>
+      </button>
+      <!-- Story analytics button (owner only) -->
+      <button id="svAnalytics" class="sv-analytics" type="button" aria-label="View story analytics" hidden>
+        <span class="icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+          </svg>
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Story Analytics Modal -->
+  <div id="storyAnalyticsModal" class="analytics-modal hidden" aria-hidden="true" role="dialog" aria-label="Story analytics">
+    <div class="analytics-content">
+      <div class="modal-header">
+        <h2>Story Analytics</h2>
+        <button id="closeAnalytics" class="btn ghost" type="button" aria-label="Close analytics">✕</button>
+      </div>
+      <div class="analytics-tabs">
+        <button type="button" class="analytics-tab active" data-tab="views">Views</button>
+        <button type="button" class="analytics-tab" data-tab="likes">Likes</button>
+      </div>
+      <div class="analytics-content-area">
+        <div id="analyticsViews" class="analytics-tab-content">
+          <div class="analytics-stats">
+            <div class="stat-card">
+              <div class="stat-number" id="viewsCount">0</div>
+              <div class="stat-label">Total Views</div>
+            </div>
+          </div>
+          <div id="viewersList" class="analytics-list">
+            <!-- Viewers will be populated here -->
+          </div>
+        </div>
+        <div id="analyticsLikes" class="analytics-tab-content hidden">
+          <div class="analytics-stats">
+            <div class="stat-card">
+              <div class="stat-number" id="likesCount">0</div>
+              <div class="stat-label">Total Likes</div>
+            </div>
+          </div>
+          <div id="likersList" class="analytics-list">
+            <!-- Likers will be populated here -->
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
