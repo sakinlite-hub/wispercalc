@@ -129,18 +129,19 @@
             </span>
             <span class="label sr-only">Stickers</span>
           </button>
-          <button id="imageBtn" class="btn ghost image-btn" type="button" aria-label="Attach image">
+          <button id="imageBtn" class="btn ghost media-btn" type="button" aria-label="Attach media (image or video)">
             <span class="icon" aria-hidden="true">
-              <!-- Image icon SVG -->
+              <!-- Media icon SVG (combined image/video) -->
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
                 <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.5"/>
                 <path d="M7 16l4-4 3 3 3-3 3 3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                 <circle cx="9" cy="8" r="1.5" fill="currentColor"/>
+                <path d="M15 10l2 1.5-2 1.5v-3z" fill="currentColor" opacity="0.7"/>
               </svg>
             </span>
-            <span class="label sr-only">Attach image</span>
+            <span class="label sr-only">Attach media</span>
           </button>
-          <textarea id="messageInput" rows="1" placeholder="Type a message or paste a TikTok URL..." autocomplete="off" enterkeyhint="enter"></textarea>
+          <textarea id="messageInput" rows="1" placeholder="Type a message" autocomplete="off" enterkeyhint="enter"></textarea>
           <button class="btn primary send-btn" type="submit" aria-label="Send">
             <span class="plane" aria-hidden="true">
               <!-- Paper plane send icon SVG -->
@@ -151,7 +152,7 @@
             <span class="label sr-only">Send</span>
           </button>
         </form>
-        <input id="imagePicker" type="file" accept="image/*" style="display:none" />
+        <input id="imagePicker" type="file" accept="image/*,video/*" style="display:none" />
         <input id="storyPicker" type="file" accept="image/*,video/*" style="display:none" />
         <!-- Sticker Picker Panel -->
         <div id="stickerPicker" class="sticker-picker hidden" role="dialog" aria-modal="false" aria-label="Sticker picker">
@@ -396,65 +397,160 @@
     </div>
   </dialog>
 
-  <!-- Profile Modal -->
-  <dialog id="profileModal" class="modal">
-    <form method="dialog" class="modal-content" id="profileForm">
-      <h2>Edit Profile</h2>
-      <div class="form-grid">
-        <label>Username
-          <input type="text" id="profUsername" minlength="3" maxlength="20" required />
-        </label>
-        <label>Email
-          <input type="email" id="profEmail" required />
-        </label>
+  <!-- Media Viewer Modal -->
+  <div id="mediaViewer" class="media-viewer hidden">
+    <div class="media-viewer-backdrop"></div>
+    <div class="media-viewer-content">
+      <button class="media-viewer-close" type="button">&times;</button>
+      <div class="media-viewer-media"></div>
+    </div>
+  </div>
 
-        <div class="avatar-section">
-          <div class="field-label">Avatar</div>
+  <!-- Profile Modal -->
+  <dialog id="profileModal" class="modal profile-modal">
+    <form method="dialog" class="modal-content profile-content" id="profileForm">
+      <div class="profile-header">
+        <div class="profile-header-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <h2>Edit Profile</h2>
+        <button type="button" id="closeProfile" class="profile-close-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="profile-form">
+        <div class="form-section">
+          <div class="input-group">
+            <label class="input-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              Username
+            </label>
+            <input type="text" id="profUsername" class="profile-input" minlength="3" maxlength="20" required placeholder="Enter your username" />
+          </div>
+          
+          <div class="input-group">
+            <label class="input-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+              Email
+            </label>
+            <input type="email" id="profEmail" class="profile-input" required placeholder="Enter your email" />
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
+            </svg>
+            Avatar Settings
+          </div>
+          
           <!-- hidden field used by JS as single source of truth -->
           <input type="hidden" id="profAvatarType" value="letter" />
-          <div class="avatar-type-group">
-            <label class="radio-card">
+          
+          <div class="avatar-options">
+            <label class="avatar-option">
               <input type="radio" name="avatarType" value="image" />
-              <div class="card">
-                <div class="icon">🖼️</div>
-                <div class="title">Photo</div>
-                <div class="hint">Upload a profile picture</div>
+              <div class="option-card">
+                <div class="option-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <polyline points="21,15 16,10 5,21"/>
+                  </svg>
+                </div>
+                <div class="option-content">
+                  <div class="option-title">Photo</div>
+                  <div class="option-desc">Upload a profile picture</div>
+                </div>
               </div>
             </label>
-            <label class="radio-card">
+            
+            <label class="avatar-option">
               <input type="radio" name="avatarType" value="letter" checked />
-              <div class="card">
-                <div class="icon">🔤</div>
-                <div class="title">Letter</div>
-                <div class="hint">Use your initial</div>
+              <div class="option-card">
+                <div class="option-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14,2 14,8 20,8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10,9 9,9 8,9"/>
+                  </svg>
+                </div>
+                <div class="option-content">
+                  <div class="option-title">Letter</div>
+                  <div class="option-desc">Use your initial</div>
+                </div>
               </div>
             </label>
           </div>
 
           <div class="avatar-controls">
             <div class="avatar-image-controls">
-              <div class="preview-row">
-                <div class="avatar preview"><img id="profAvatarPreview" alt="Avatar preview" /></div>
-                <div class="preview-actions">
-                  <button type="button" id="profAvatarUploadBtn" class="btn ghost">Upload photo</button>
-                  <div class="subhint">Max 2MB. JPG/PNG recommended.</div>
-                  <div id="profAvatarProgress" class="progress hidden" aria-hidden="true">
+              <div class="avatar-preview-section">
+                <div class="avatar-preview-wrapper">
+                  <div class="avatar preview"><img id="profAvatarPreview" alt="Avatar preview" /></div>
+                </div>
+                <div class="avatar-upload-actions">
+                  <button type="button" id="profAvatarUploadBtn" class="upload-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7,10 12,15 17,10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Upload Photo
+                  </button>
+                  <div class="upload-hint">Max 2MB • JPG, PNG</div>
+                  <div id="profAvatarProgress" class="upload-progress hidden" aria-hidden="true">
                     <div id="profAvatarProgressBar" class="progress-bar" style="width:0%"></div>
                   </div>
                 </div>
               </div>
               <input id="profAvatarPicker" type="file" accept="image/*" style="display:none" />
             </div>
-            <label class="avatar-letter">
-              <span>Letter</span>
-              <input type="text" id="profLetter" placeholder="A" maxlength="2" />
-            </label>
+            
+            <div class="avatar-letter-controls">
+              <label class="letter-input-group">
+                <span class="letter-label">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14,2 14,8 20,8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                  </svg>
+                  Letter
+                </span>
+                <input type="text" id="profLetter" class="letter-input" placeholder="A" maxlength="2" />
+              </label>
+            </div>
           </div>
         </div>
       </div>
-      <button type="button" id="saveProfileBtn" class="btn primary full">Save</button>
-      <button type="button" id="closeProfile" class="btn ghost">Close</button>
-      <p id="profileError" class="error"></p>
+
+      <div class="profile-actions">
+        <button type="button" id="saveProfileBtn" class="save-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20,6 9,17 4,12"/>
+          </svg>
+          Save Changes
+        </button>
+      </div>
+      
+      <p id="profileError" class="profile-error"></p>
     </form>
   </dialog>
 

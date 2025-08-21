@@ -73,6 +73,8 @@ const messageForm = document.getElementById('messageForm');
 const messageInput = document.getElementById('messageInput');
 const imageBtn = document.getElementById('imageBtn');
 const imagePicker = document.getElementById('imagePicker');
+const videoBtn = document.getElementById('videoBtn');
+const videoPicker = document.getElementById('videoPicker');
 // Sticker picker elements
 const stickerBtn = document.getElementById('stickerBtn');
 const stickerPicker = document.getElementById('stickerPicker');
@@ -398,6 +400,10 @@ function isImageFile(file) {
   return file && /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
 }
 
+function isVideoFile(file) {
+  return file && /^video\/(mp4|webm|ogg|avi|mov|wmv|flv|mkv)$/i.test(file.type);
+}
+
 function fileToImage(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -465,6 +471,94 @@ async function uploadToCloudinary(file, onProgress) {
   return { url: data.secure_url, thumbUrl };
 }
 
+// Upload video to Cloudinary with enhanced error handling
+async function uploadVideoToCloudinary(file, onProgress) {
+  console.log(`Starting video upload: ${file.name}, size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+  
+  // Check size limit
+  const maxSize = 100 * 1024 * 1024; // 100MB limit
+  if (file.size > maxSize) {
+    throw new Error(`Video too large: ${(file.size / 1024 / 1024).toFixed(2)}MB. Max: 100MB`);
+  }
+  
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLOUDINARY.unsignedPreset);
+  fd.append('folder', 'chat-videos');
+  fd.append('resource_type', 'auto'); // Let Cloudinary auto-detect
+  
+  const isLargeFile = file.size > 20 * 1024 * 1024; // 20MB+
+  
+  const json = await new Promise((resolve, reject) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.timeout = isLargeFile ? 600000 : 180000; // 10min for large, 3min for others
+      
+      // Use regular upload endpoint for better compatibility
+      xhr.open('POST', 'https://api.cloudinary.com/v1_1/dqjj94zt3/upload');
+      
+      let lastProgress = 0;
+      xhr.upload.onprogress = (e) => {
+        if (onProgress && e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          if (pct > lastProgress) {
+            lastProgress = pct;
+            console.log(`Video upload progress: ${pct}%`);
+            try { onProgress(Math.min(98, pct)); } catch(_){}
+          }
+        }
+      };
+      
+      xhr.onload = () => {
+        console.log(`Video upload completed with status: ${xhr.status}`);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { 
+            const response = JSON.parse(xhr.responseText);
+            console.log('Video upload response:', response);
+            if (onProgress) onProgress(100);
+            resolve(response); 
+          } catch (err) { 
+            console.error('Failed to parse video response:', err);
+            reject(new Error('Invalid response from server')); 
+          }
+        } else { 
+          console.error('Video upload failed:', xhr.status, xhr.statusText, xhr.responseText);
+          reject(new Error(`Video upload failed (${xhr.status}): ${xhr.statusText || 'Unknown error'}`)); 
+        }
+      };
+      
+      xhr.onerror = (e) => {
+        console.error('Network error during video upload:', e);
+        reject(new Error('Network error - check your connection'));
+      };
+      
+      xhr.ontimeout = () => {
+        console.error('Video upload timeout');
+        reject(new Error('Upload timeout - try a smaller video'));
+      };
+      
+      console.log('Sending video upload request...');
+      xhr.send(fd);
+    } catch (err) { 
+      console.error('Error setting up video upload:', err);
+      reject(err); 
+    }
+  });
+  
+  const secureUrl = json.secure_url;
+  if (!secureUrl) {
+    console.error('No secure_url in video response:', json);
+    throw new Error('Invalid response from upload service');
+  }
+  
+  const publicId = json.public_id || '';
+  const resourceType = json.resource_type || '';
+  const mediaType = resourceType === 'video' ? 'video' : 'image';
+  
+  console.log(`Video upload successful: ${secureUrl}`);
+  return { url: secureUrl, publicId, mediaType };
+}
+
 // Simple in-chat upload progress UI
 function createChatUploadProgress() {
   if (!messagesEl) return null;
@@ -472,7 +566,7 @@ function createChatUploadProgress() {
   row.className = 'upload-progress-row';
   const label = document.createElement('div');
   label.className = 'upload-label';
-  label.textContent = 'Uploading image…';
+  label.textContent = 'Uploading…';
   const bar = document.createElement('div');
   bar.className = 'progress';
   const fill = document.createElement('div');
@@ -484,45 +578,90 @@ function createChatUploadProgress() {
   // keep scrolled to bottom
   try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch(_){}
   return {
+    label,
     update(pct){ fill.style.width = (pct||0) + '%'; },
     done(){ row.remove(); },
     error(msg){ label.textContent = msg || 'Upload failed'; setTimeout(()=>row.remove(), 1500); }
   };
 }
 
-async function handleImageFile(file) {
+// Combined media file handler for both images and videos
+async function handleMediaFile(file) {
   try {
     if (!currentUser || !selectedPeer) return;
-    if (!isImageFile(file)) { try { console.warn('Not an allowed image type'); } catch(_) {} return; }
-    const maxBytes = 4 * 1024 * 1024; // 4MB
-    if (file.size > maxBytes) { try { console.warn('Image too large'); } catch(_) {} return; }
+    
+    const isImage = isImageFile(file);
+    const isVideo = isVideoFile(file);
+    
+    if (!isImage && !isVideo) {
+      alert('Please select an image or video file');
+      return;
+    }
+    
+    // Size limits: images 4MB, videos 400MB
+    const maxBytes = isImage ? 4 * 1024 * 1024 : 400 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      alert(`File too large. Max size: ${isImage ? '4MB' : '400MB'}`);
+      return;
+    }
+    
     const ui = createChatUploadProgress();
-    const small = await compressImage(file, { maxW: 1280, quality: 0.72 });
-    const { url, thumbUrl } = await uploadToCloudinary(small, (pct)=> ui && ui.update(pct));
+    if (ui) ui.label.textContent = `Uploading ${isImage ? 'image' : 'video'}…`;
+    
     const chatId = getChatId(currentUser.uid, selectedPeer.uid);
-    await chatsCol.doc(chatId).collection('messages').add({
-      from: currentUser.uid,
-      type: 'image',
-      imageUrl: url,
-      thumbUrl,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    
+    if (isImage) {
+      const small = await compressImage(file, { maxW: 1280, quality: 0.72 });
+      const { url, thumbUrl } = await uploadToCloudinary(small, (pct)=> ui && ui.update(pct));
+      await chatsCol.doc(chatId).collection('messages').add({
+        from: currentUser.uid,
+        type: 'image',
+        imageUrl: url,
+        thumbUrl,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      const { url, publicId, mediaType } = await uploadVideoToCloudinary(file, (pct)=> ui && ui.update(pct));
+      await chatsCol.doc(chatId).collection('messages').add({
+        from: currentUser.uid,
+        type: 'video',
+        videoUrl: url,
+        publicId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    
     if (ui) ui.done();
   } catch (e) {
-    try { console.error('Image send failed', e); } catch(_) {}
+    try { console.error('Media send failed', e); } catch(_) {}
+    // Show error to user
+    alert(`Upload failed: ${e.message || 'Unknown error'}`);
     // Best-effort show failure in UI
     try { const actives = document.querySelectorAll('.upload-progress-row'); if (actives.length) actives[actives.length-1].remove(); } catch(_){}
   } finally {
     if (imagePicker) imagePicker.value = '';
+    if (videoPicker) videoPicker.value = '';
   }
 }
 
+// Combined media upload button (handles both images and videos)
 if (imageBtn && imagePicker) {
+  // Update image picker to accept both images and videos
+  imagePicker.accept = 'image/*,video/*';
+  
   imageBtn.addEventListener('click', () => imagePicker.click());
   imagePicker.addEventListener('change', async () => {
     const f = imagePicker.files && imagePicker.files[0];
-    if (f) await handleImageFile(f);
+    if (f) await handleMediaFile(f);
   });
+}
+
+// Keep video button functionality for backward compatibility but hide it
+if (videoBtn) {
+  videoBtn.style.display = 'none';
+}
+if (videoPicker && videoPicker.parentNode) {
+  videoPicker.remove(); // Remove separate video picker
 }
 
 // ================= Stories (TikTok-like) =================
@@ -873,62 +1012,163 @@ function prevStory() {
   closeStoryViewer();
 }
 
-// Upload a story (image or video) via Cloudinary auto/upload
+// Upload a story (image or video) via Cloudinary with enhanced error handling
 async function uploadStoryFile(file, onProgress) {
+  console.log(`Starting upload: ${file.name}, size: ${(file.size / 1024 / 1024).toFixed(2)}MB, type: ${file.type}`);
+  
+  // Check file size limits - Cloudinary free tier has 10MB limit for videos
+  const isVideo = /^video\//i.test(file.type);
+  const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024; // 100MB for videos, 10MB for images
+  
+  if (file.size > maxSize) {
+    throw new Error(`File too large: ${(file.size / 1024 / 1024).toFixed(2)}MB. Max allowed: ${(maxSize / 1024 / 1024)}MB`);
+  }
+  
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY.unsignedPreset);
   fd.append('folder', 'stories');
-  // Prefer XHR to report progress
+  
+  // For large files, try different approach
+  const isLargeFile = file.size > 20 * 1024 * 1024; // 20MB+
+  if (isLargeFile && isVideo) {
+    // Use regular image upload endpoint for better compatibility
+    fd.append('resource_type', 'auto');
+  }
+  
   const json = await new Promise((resolve, reject) => {
     try {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', CLOUDINARY_AUTO_UPLOAD_URL);
+      
+      // Set appropriate timeout
+      xhr.timeout = isLargeFile ? 600000 : 180000; // 10min for large, 3min for others
+      
+      // Use the appropriate endpoint
+      const uploadUrl = isLargeFile && isVideo ? 
+        'https://api.cloudinary.com/v1_1/dqjj94zt3/upload' : 
+        CLOUDINARY_AUTO_UPLOAD_URL;
+      
+      xhr.open('POST', uploadUrl);
+      
+      let lastProgress = 0;
       xhr.upload.onprogress = (e) => {
         if (onProgress && e.lengthComputable) {
           const pct = Math.round((e.loaded / e.total) * 100);
-          try { onProgress(pct); } catch(_){}
+          if (pct > lastProgress) {
+            lastProgress = pct;
+            console.log(`Upload progress: ${pct}%`);
+            try { onProgress(Math.min(98, pct)); } catch(_){} // Cap at 98% until response
+          }
         }
       };
+      
       xhr.onload = () => {
+        console.log(`Upload completed with status: ${xhr.status}`);
         if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(err); }
-        } else { reject(new Error('Upload failed')); }
+          try { 
+            const response = JSON.parse(xhr.responseText);
+            console.log('Upload response:', response);
+            if (onProgress) onProgress(100);
+            resolve(response); 
+          } catch (err) { 
+            console.error('Failed to parse response:', err);
+            reject(new Error('Invalid response from server')); 
+          }
+        } else { 
+          console.error('Upload failed:', xhr.status, xhr.statusText, xhr.responseText);
+          reject(new Error(`Upload failed (${xhr.status}): ${xhr.statusText || 'Unknown error'}`)); 
+        }
       };
-      xhr.onerror = () => reject(new Error('Network error'));
+      
+      xhr.onerror = (e) => {
+        console.error('Network error during upload:', e);
+        reject(new Error('Network error - check your internet connection'));
+      };
+      
+      xhr.ontimeout = () => {
+        console.error('Upload timeout');
+        reject(new Error('Upload timeout - try a smaller file or check your connection'));
+      };
+      
+      console.log('Sending upload request...');
       xhr.send(fd);
-    } catch (err) { reject(err); }
+    } catch (err) { 
+      console.error('Error setting up upload:', err);
+      reject(err); 
+    }
   });
+  
   const secureUrl = json.secure_url;
-  if (!secureUrl) throw new Error('No URL from Cloudinary');
+  if (!secureUrl) {
+    console.error('No secure_url in response:', json);
+    throw new Error('Invalid response from upload service');
+  }
+  
   const publicId = json.public_id || '';
   const resourceType = json.resource_type || '';
   const mediaType = resourceType === 'video' ? 'video' : 'image';
+  
+  console.log(`Upload successful: ${secureUrl}`);
   return { url: secureUrl, publicId, mediaType };
 }
 
 async function handleAddStoryFile(file) {
   if (!currentUser || !file) return;
+  
+  console.log(`Story upload attempt: ${file.name}, ${(file.size / 1024 / 1024).toFixed(2)}MB, ${file.type}`);
+  
   const isImage = /^image\//i.test(file.type);
   const isVideo = /^video\//i.test(file.type);
-  if (!isImage && !isVideo) { alert('Only image or video allowed'); return; }
-  // Size guard: images <= 5MB, videos <= 20MB
-  const max = isImage ? 5*1024*1024 : 20*1024*1024;
-  if (file.size > max) { alert('File too large'); return; }
+  
+  if (!isImage && !isVideo) { 
+    alert('Only image or video files are allowed'); 
+    return; 
+  }
+  
+  // More realistic size limits
+  const max = isImage ? 10*1024*1024 : 100*1024*1024; // 10MB images, 100MB videos
+  if (file.size > max) { 
+    alert(`File too large: ${(file.size / 1024 / 1024).toFixed(2)}MB. Max size: ${isImage ? '10MB' : '100MB'}`); 
+    return; 
+  }
+  
   // Optional: compress image
   let uploadFile = file;
   if (isImage) {
-    try { uploadFile = await compressImage(file, { maxW: 1080, quality: 0.8 }); } catch(_) {}
+    try { 
+      console.log('Compressing image...');
+      uploadFile = await compressImage(file, { maxW: 1080, quality: 0.8 }); 
+      console.log(`Image compressed: ${(uploadFile.size / 1024 / 1024).toFixed(2)}MB`);
+    } catch(e) {
+      console.warn('Image compression failed:', e);
+    }
   }
-  // Show simple progress in messages area to reuse UI
+  
+  // Show progress UI
   const ui = createChatUploadProgress();
-  if (ui) ui && ui.update(0);
+  if (ui) {
+    ui.label.textContent = `Uploading ${isImage ? 'image' : 'video'} story...`;
+    ui.update(0);
+  }
+  
   // Show circular progress on "Your Story"
-  try { ensureMyStoryProgressOverlay(); updateMyStoryProgress(0); if (addStoryBtn) addStoryBtn.disabled = true; } catch(_) {}
+  try { 
+    ensureMyStoryProgressOverlay(); 
+    updateMyStoryProgress(0); 
+    if (addStoryBtn) addStoryBtn.disabled = true; 
+  } catch(_) {}
+  
   try {
-    const up = await uploadStoryFile(uploadFile, (p)=> { ui && ui.update(p); try { updateMyStoryProgress(p); } catch(_) {} });
+    console.log('Starting story upload...');
+    const up = await uploadStoryFile(uploadFile, (p)=> { 
+      if (ui) ui.update(p); 
+      try { updateMyStoryProgress(p); } catch(_) {} 
+    });
+    
+    console.log('Upload successful, saving to Firestore...');
     const created = firebase.firestore.FieldValue.serverTimestamp();
     const expiresAt = firebase.firestore.Timestamp.fromMillis(nowMs() + 24*60*60*1000);
+    
     await storiesCol.add({
       ownerUid: currentUser.uid,
       mediaUrl: up.url,
@@ -937,13 +1177,31 @@ async function handleAddStoryFile(file) {
       createdAt: created,
       expiresAt: expiresAt,
     });
+    
+    console.log('Story saved successfully!');
     if (ui) ui.done();
     try { updateMyStoryProgress(100); } catch(_) {}
+    
   } catch (e) {
-    if (ui) ui.error('Story upload failed');
-    try { console.error('Story upload failed', e); } catch(_) {}
+    console.error('Story upload failed:', e);
+    if (ui) ui.error(`Upload failed: ${e.message}`);
+    
+    // Show detailed error to user
+    let errorMsg = e.message || 'Unknown error occurred';
+    if (errorMsg.includes('timeout')) {
+      errorMsg = 'Upload timed out. Try a smaller file or check your internet connection.';
+    } else if (errorMsg.includes('Network error')) {
+      errorMsg = 'Network error. Please check your internet connection and try again.';
+    } else if (errorMsg.includes('too large')) {
+      errorMsg = `File is too large. Please use a file smaller than ${isImage ? '10MB' : '100MB'}.`;
+    }
+    
+    alert(`Story upload failed: ${errorMsg}`);
   } finally {
-    try { clearMyStoryProgress(); if (addStoryBtn) addStoryBtn.disabled = false; } catch(_) {}
+    try { 
+      clearMyStoryProgress(); 
+      if (addStoryBtn) addStoryBtn.disabled = false; 
+    } catch(_) {}
   }
 }
 
@@ -1367,22 +1625,64 @@ if (stickerResults) {
   });
 }
 
-// ================= Image viewer modal (open/close/download) =================
-function openImageViewer(src) {
-  if (!imageViewer || !imageViewerImg) return;
-  imageViewerImg.src = src;
-  imageViewer.classList.remove('hidden');
-  imageViewer.setAttribute('aria-hidden', 'false');
+// ================= Media viewer modal (open/close for images and videos) =================
+function openMediaViewer(src, type = 'image') {
+  const mediaViewer = document.getElementById('mediaViewer');
+  const mediaContainer = mediaViewer?.querySelector('.media-viewer-media');
+  if (!mediaViewer || !mediaContainer) return;
+  
+  // Clear previous content
+  mediaContainer.innerHTML = '';
+  
+  if (type === 'video') {
+    const video = document.createElement('video');
+    video.src = src;
+    video.controls = true;
+    video.autoplay = true;
+    video.style.maxWidth = '100%';
+    video.style.maxHeight = '90vh';
+    video.style.borderRadius = '8px';
+    mediaContainer.appendChild(video);
+  } else {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'Full size media';
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = '90vh';
+    img.style.borderRadius = '8px';
+    mediaContainer.appendChild(img);
+  }
+  
+  mediaViewer.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
-  imageViewer.dataset.src = src;
+}
+
+function closeMediaViewer() {
+  const mediaViewer = document.getElementById('mediaViewer');
+  const mediaContainer = mediaViewer?.querySelector('.media-viewer-media');
+  if (!mediaViewer) return;
+  
+  mediaViewer.classList.add('hidden');
+  document.body.style.overflow = '';
+  
+  // Stop any playing videos
+  if (mediaContainer) {
+    const videos = mediaContainer.querySelectorAll('video');
+    videos.forEach(video => {
+      video.pause();
+      video.currentTime = 0;
+    });
+    mediaContainer.innerHTML = '';
+  }
+}
+
+// Legacy function for backward compatibility
+function openImageViewer(src) {
+  openMediaViewer(src, 'image');
 }
 
 function closeImageViewer() {
-  if (!imageViewer) return;
-  imageViewer.classList.add('hidden');
-  imageViewer.setAttribute('aria-hidden', 'true');
-  document.body.style.overflow = '';
-  if (imageViewerImg) imageViewerImg.src = '';
+  closeMediaViewer();
 }
 
 async function downloadImage(url) {
@@ -1887,8 +2187,11 @@ if (soundToggleBtn) {
 function replyLabelFor(m) {
   if (!m) return '';
   if (m.type === 'tiktok') return 'TikTok video';
+  if (m.type === 'image') return '📷 Image';
+  if (m.type === 'video') return '🎥 Video';
+  if (m.type === 'sticker') return '🎭 Sticker';
   const t = (m.text || '').trim();
-  return t.length > 0 ? t : '[empty]';
+  return t.length > 40 ? t.slice(0, 40) + '…' : t;
 }
 
 function showReplyPreview(m) {
@@ -2073,7 +2376,8 @@ if (messageInput) {
       ta.style.height = 'auto';
       const h = Math.min(max, ta.scrollHeight);
       ta.style.height = h + 'px';
-      ta.style.overflowY = (ta.scrollHeight > max) ? 'auto' : 'hidden';
+      // Enable scrolling when content exceeds max height, but keep scrollbar hidden via CSS
+      ta.style.overflowY = (ta.scrollHeight > max) ? 'scroll' : 'hidden';
     } catch(_){}
   };
   messageInput.addEventListener('input', () => {
@@ -2359,6 +2663,11 @@ function stopPresence() {
 function showChat(){
   calculatorScreen.classList.add('hidden');
   chatUI.classList.remove('hidden');
+  // Mark chat as loaded to prevent initial animation conflicts
+  setTimeout(() => {
+    chatUI.classList.add('chat-loaded');
+  }, 1600); // After all initial animations complete
+  
   // Ensure presence flips to active immediately when entering main UI
   if (currentUser) {
     usersCol.doc(currentUser.uid).set({
@@ -2816,24 +3125,86 @@ function renderMessage(m) {
     body.textContent = m.text || '';
   } else if (m.type === 'image' && (m.imageUrl || m.thumbUrl)) {
     const media = document.createElement('div');
-    media.className = 'media';
+    media.className = 'media media-loading';
     const img = document.createElement('img');
     img.loading = 'lazy';
     img.alt = 'Image';
     img.src = m.thumbUrl || m.imageUrl;
     img.style.cursor = 'zoom-in';
-    img.addEventListener('click', () => openImageViewer(m.imageUrl || img.src));
+    
+    // Add loading handlers
+    img.addEventListener('load', () => {
+      img.classList.add('loaded');
+      media.classList.remove('media-loading');
+    });
+    
+    img.addEventListener('error', () => {
+      media.classList.remove('media-loading');
+    });
+    
+    img.addEventListener('click', () => openMediaViewer(m.imageUrl || img.src, 'image'));
     media.appendChild(img);
+    body.appendChild(media);
+  } else if (m.type === 'video' && m.videoUrl) {
+    const media = document.createElement('div');
+    media.className = 'media video-media media-loading';
+    const video = document.createElement('video');
+    video.src = m.videoUrl;
+    video.controls = true;
+    video.preload = 'metadata';
+    video.style.maxWidth = '100%';
+    video.style.maxHeight = '300px';
+    video.style.borderRadius = '8px';
+    video.style.cursor = 'pointer';
+    
+    // Add poster/thumbnail if available
+    if (m.thumbUrl) {
+      video.poster = m.thumbUrl;
+    }
+    
+    // Add loading handlers for video
+    video.addEventListener('loadeddata', () => {
+      video.classList.add('loaded');
+      media.classList.remove('media-loading');
+    });
+    
+    video.addEventListener('canplay', () => {
+      video.classList.add('loaded');
+      media.classList.remove('media-loading');
+    });
+    
+    video.addEventListener('error', () => {
+      media.classList.remove('media-loading');
+    });
+    
+    // Click to open in full-screen viewer
+    video.addEventListener('click', (e) => {
+      e.preventDefault();
+      openMediaViewer(m.videoUrl, 'video');
+    });
+    
+    media.appendChild(video);
     body.appendChild(media);
   } else if (m.type === 'sticker' && m.stickerUrl) {
     const media = document.createElement('div');
-    media.className = 'media';
+    media.className = 'media media-loading';
     const img = document.createElement('img');
     img.loading = 'lazy';
     img.alt = 'Sticker';
     img.src = m.stickerUrl;
     img.style.cursor = 'zoom-in';
-    img.addEventListener('click', () => openImageViewer(m.stickerUrl));
+    
+    // Add loading handlers for stickers too
+    img.addEventListener('load', () => {
+      img.classList.add('loaded');
+      media.classList.remove('media-loading');
+    });
+    
+    img.addEventListener('error', () => {
+      media.classList.remove('media-loading');
+    });
+    
+    img.addEventListener('click', () => openMediaViewer(m.stickerUrl, 'image'));
     media.appendChild(img);
     body.appendChild(media);
   } else if (m.type === 'tiktok' && m.url) {
@@ -3267,6 +3638,28 @@ byId('authError').textContent = 'Complete profile: username + passcode.';
     renderStoriesBar();
   }
 });
+
+// Media viewer event listeners
+const mediaViewer = document.getElementById('mediaViewer');
+if (mediaViewer) {
+  const backdrop = mediaViewer.querySelector('.media-viewer-backdrop');
+  const closeBtn = mediaViewer.querySelector('.media-viewer-close');
+  
+  if (backdrop) {
+    backdrop.addEventListener('click', closeMediaViewer);
+  }
+  
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeMediaViewer);
+  }
+  
+  // Close on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !mediaViewer.classList.contains('hidden')) {
+      closeMediaViewer();
+    }
+  });
+}
 
 // Back button for mobile
 if (backBtn) {
