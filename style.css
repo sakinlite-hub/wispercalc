@@ -863,7 +863,17 @@ body {
 .story-viewer { position: fixed; inset: 0; z-index: 1000; }
 .story-viewer.hidden { display: none; }
 .sv-backdrop { position:absolute; inset:0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
-.sv-content { position: relative; margin: 0 auto; height: 100%; max-width: min(520px, 96vw); display:flex; flex-direction:column; }
+.sv-content { 
+  position: relative; 
+  margin: 0 auto; 
+  height: 100%; 
+  max-width: min(520px, 96vw); 
+  display:flex; 
+  flex-direction:column;
+  /* Ensure proper containment for story reply interface */
+  overflow: hidden;
+  box-sizing: border-box;
+}
 .sv-header { display:flex; align-items:center; gap:10px; padding: 12px; }
 .sv-meta { display:flex; flex-direction:column; }
 .sv-name { font-weight:700; }
@@ -1005,6 +1015,11 @@ body {
   pointer-events: none;
   opacity: 0;
   transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  /* Ensure proper containment */
+  box-sizing: border-box;
+  overflow: hidden;
+  /* Mobile safe area support */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .sv-reply-container.show {
@@ -1015,6 +1030,10 @@ body {
 
 .sv-reply-content {
   pointer-events: auto;
+  /* Ensure proper containment */
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
 }
 
 .sv-reply-form {
@@ -1029,6 +1048,11 @@ body {
   -webkit-backdrop-filter: blur(12px);
   transition: all 0.2s ease;
   box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  /* Ensure proper containment */
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .sv-reply-form:focus-within {
@@ -1051,6 +1075,12 @@ body {
   padding: 8px 12px;
   height: 32px;
   font-family: inherit;
+  /* Ensure proper containment */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sv-reply-input::placeholder {
@@ -1155,31 +1185,166 @@ body {
 
 
 
-/* Responsive adjustments for story reply */
+/* Comprehensive responsive adjustments for story reply */
+/* Large mobile and tablet */
 @media (max-width: 480px) {
   .sv-reply-container {
     width: calc(100% - 120px);
     max-width: 280px;
+    min-width: 200px;
+  }
+  
+  .sv-reply-form {
+    gap: 4px;
+    padding: 3px;
   }
   
   .sv-reply-input {
     font-size: 16px; /* Prevent zoom on iOS */
     padding: 6px 10px;
+    min-width: 0;
   }
   
   .sv-reply-close {
     width: 22px;
     height: 22px;
+    flex-shrink: 0;
   }
   
   .sv-reply-send {
     width: 30px;
     height: 30px;
+    flex-shrink: 0;
   }
   
   .sv-reply-send svg {
     width: 14px;
     height: 14px;
+  }
+}
+
+/* Small mobile */
+@media (max-width: 380px) {
+  .sv-reply-container {
+    width: calc(100% - 100px);
+    max-width: 260px;
+    min-width: 180px;
+  }
+  
+  .sv-reply-form {
+    gap: 3px;
+    padding: 2px;
+  }
+  
+  .sv-reply-input {
+    padding: 4px 8px;
+    font-size: 16px;
+  }
+  
+  .sv-reply-close {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .sv-reply-send {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .sv-reply-send svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+/* Very small mobile (emergency rules) */
+@media (max-width: 320px) {
+  .sv-reply-container {
+    width: calc(100% - 80px);
+    max-width: none;
+    min-width: 160px;
+  }
+  
+  .sv-reply-form {
+    gap: 2px;
+    padding: 2px;
+  }
+  
+  .sv-reply-input {
+    padding: 4px 6px;
+    font-size: 16px;
+  }
+  
+  .sv-reply-close {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .sv-reply-send {
+    width: 26px;
+    height: 26px;
+  }
+  
+  .sv-reply-send svg {
+    width: 10px;
+    height: 10px;
+  }
+}
+
+/* Landscape orientation support */
+@media (max-height: 500px) and (orientation: landscape) {
+  .sv-reply-container {
+    bottom: 80px;
+    width: calc(100% - 160px);
+    max-width: 250px;
+  }
+  
+  .sv-reply-form {
+    padding: 2px;
+  }
+  
+  .sv-reply-input {
+    height: 28px;
+    padding: 4px 8px;
+  }
+  
+  .sv-reply-close,
+  .sv-reply-send {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* Emergency responsive rules for extreme cases */
+@media (max-width: 280px) {
+  .sv-reply-container {
+    width: calc(100% - 40px);
+    max-width: none;
+    left: 50%;
+    transform: translateX(-50%) translateY(60px);
+  }
+  
+  .sv-reply-container.show {
+    transform: translateX(-50%) translateY(0);
+  }
+  
+  .sv-reply-form {
+    gap: 1px;
+    padding: 1px;
+    min-height: 24px;
+  }
+  
+  .sv-reply-input {
+    padding: 2px 4px;
+    min-width: 0;
+    flex: 1;
+  }
+  
+  .sv-reply-close,
+  .sv-reply-send {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
   }
 }
 
