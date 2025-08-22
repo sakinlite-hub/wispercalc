@@ -111,6 +111,11 @@ const svMute = document.getElementById('svMute');
 const svLike = document.getElementById('svLike');
 const svLikeCount = document.getElementById('svLikeCount');
 const svAnalytics = document.getElementById('svAnalytics');
+const svReplyBtn = document.getElementById('svReplyBtn');
+const svReplyContainer = document.getElementById('svReplyContainer');
+const svReplyForm = document.getElementById('svReplyForm');
+const svReplyInput = document.getElementById('svReplyInput');
+const svReplyClose = document.getElementById('svReplyClose');
 const storyAnalyticsModal = document.getElementById('storyAnalyticsModal');
 const closeAnalytics = document.getElementById('closeAnalytics');
 const analyticsViews = document.getElementById('analyticsViews');
@@ -183,13 +188,30 @@ function getStoredPasscode() {
 function maybeUnlock(expr) {
   const s = (expr || '').trim();
   if (/^\d+$/.test(s) && s === getStoredPasscode()) {
-    // Unlock: hide calculator, show chat UI
+    // Unlock: use showChat() function which handles all UI transitions including profile button
     try {
-      if (calculatorScreen) { calculatorScreen.classList.add('hidden'); calculatorScreen.setAttribute('aria-hidden','true'); }
-      if (chatUI) { chatUI.classList.remove('hidden'); chatUI.setAttribute('aria-hidden','false'); }
-      if (calcHint) calcHint.textContent = 'Unlocked';
+      showChat();
+      if (calcHint) {
+        calcHint.textContent = 'Welcome! 🎉';
+        calcHint.classList.add('success');
+      }
     } catch(_) {}
     return true;
+  } else if (/^\d+$/.test(s) && s !== getStoredPasscode()) {
+    // Wrong passcode feedback
+    if (calcHint) {
+      calcHint.textContent = 'Wrong passcode. Try again.';
+      calcHint.classList.add('error');
+      setTimeout(() => {
+        calcHint.classList.remove('error');
+        calcHint.textContent = 'Enter your numeric passcode and press =';
+      }, 2000);
+    }
+    // Enhanced shake animation
+    if (calculatorScreen) {
+      calculatorScreen.classList.add('enhancedShake');
+      setTimeout(() => calculatorScreen.classList.remove('enhancedShake'), 600);
+    }
   }
   return false;
 }
@@ -224,7 +246,14 @@ function handleCalcKey(k) {
   }
   if (type === '=') {
     // Unlock check first
-    if (maybeUnlock(CALC.expr)) { return; }
+    if (maybeUnlock(CALC.expr)) { 
+      // Add success feedback
+      if (calcHint) {
+        calcHint.textContent = 'Unlocked! ✓';
+        calcHint.classList.add('success');
+      }
+      return; 
+    }
     // Otherwise evaluate
     try {
       const res = evalExpression(CALC.expr);
@@ -234,6 +263,15 @@ function handleCalcKey(k) {
       setCalcDisplay(CALC.expr);
     } catch(_) {
       CALC.lastResult = null; CALC.justEvaluated = true; setCalcDisplay('Error');
+      // Add error feedback
+      if (calcHint) {
+        calcHint.textContent = 'Invalid expression';
+        calcHint.classList.add('error');
+        setTimeout(() => {
+          calcHint.classList.remove('error');
+          calcHint.textContent = 'Enter your numeric passcode and press =';
+        }, 2000);
+      }
     }
     return;
   }
@@ -252,12 +290,54 @@ function handleCalcKey(k) {
     CALC.expr += type;
   }
   setCalcDisplay(CALC.expr);
+  
+  // Clear any previous hint states
+  if (calcHint) {
+    calcHint.classList.remove('success', 'error');
+  }
 }
 
+// Add ripple effect to calculator keys
+function addRippleEffect(button, event) {
+  const ripple = document.createElement('span');
+  const rect = button.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const x = event.clientX - rect.left - size / 2;
+  const y = event.clientY - rect.top - size / 2;
+  
+  ripple.style.cssText = `
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(0);
+    animation: ripple 0.6s linear;
+    left: ${x}px;
+    top: ${y}px;
+    width: ${size}px;
+    height: ${size}px;
+    pointer-events: none;
+  `;
+  
+  button.appendChild(ripple);
+  
+  setTimeout(() => {
+    ripple.remove();
+  }, 600);
+}
+
+// Enhanced click handler with ripple effect
 if (calcGrid) {
   calcGrid.addEventListener('click', (e) => {
     const btn = e.target.closest('.key');
     if (!btn) return;
+    
+    // Add ripple effect
+    addRippleEffect(btn, e);
+    
+    // Add brief active state
+    btn.classList.add('active');
+    setTimeout(() => btn.classList.remove('active'), 150);
+    
     const k = btn.getAttribute('data-key');
     if (k) handleCalcKey(k);
   });
@@ -827,35 +907,60 @@ function getMyStoryAvatarRing() {
   try { return document.querySelector('#addStoryBtn .story-avatar.me'); } catch(_) { return null; }
 }
 
-function ensureMyStoryProgressOverlay() {
+function createStoryProgressCircle() {
   const ring = getMyStoryAvatarRing();
   if (!ring) return null;
+  
+  // Remove any existing progress circle
+  const existing = ring.querySelector('.story-progress-circle');
+  if (existing) existing.remove();
+  
+  // Create new progress circle
+  const progressCircle = document.createElement('div');
+  progressCircle.className = 'story-progress-circle';
+  progressCircle.style.setProperty('--progress-deg', '0deg');
+  
+  ring.appendChild(progressCircle);
   ring.classList.add('uploading');
-  let prog = ring.querySelector('.upload-progress');
-  if (!prog) {
-    prog = document.createElement('div');
-    prog.className = 'upload-progress';
-    ring.appendChild(prog);
+  
+  // Animate in
+  requestAnimationFrame(() => {
+    progressCircle.classList.add('active');
+  });
+  
+  return progressCircle;
+}
+
+function updateStoryProgress(percentage) {
+  const ring = getMyStoryAvatarRing();
+  if (!ring) return;
+  
+  let progressCircle = ring.querySelector('.story-progress-circle');
+  if (!progressCircle) {
+    progressCircle = createStoryProgressCircle();
   }
-  try { prog.style.setProperty('--pct', '0%'); } catch(_) {}
-  return prog;
+  
+  if (progressCircle) {
+    const degrees = Math.max(0, Math.min(360, (percentage / 100) * 360));
+    progressCircle.style.setProperty('--progress-deg', `${degrees}deg`);
+  }
 }
 
-function updateMyStoryProgress(p) {
+function clearStoryProgress() {
   const ring = getMyStoryAvatarRing();
   if (!ring) return;
-  let prog = ring.querySelector('.upload-progress');
-  if (!prog) prog = ensureMyStoryProgressOverlay();
-  const pct = Math.max(0, Math.min(100, Number(p) || 0));
-  try { prog && prog.style.setProperty('--pct', pct + '%'); } catch(_) {}
-}
-
-function clearMyStoryProgress() {
-  const ring = getMyStoryAvatarRing();
-  if (!ring) return;
+  
+  const progressCircle = ring.querySelector('.story-progress-circle');
+  if (progressCircle) {
+    progressCircle.classList.remove('active');
+    setTimeout(() => {
+      try {
+        progressCircle.remove();
+      } catch(_) {}
+    }, 300); // Wait for transition
+  }
+  
   ring.classList.remove('uploading');
-  const prog = ring.querySelector('.upload-progress');
-  if (prog) try { prog.remove(); } catch(_) {}
 }
 
 // ===== Story viewer helpers (progress + audio pref) =====
@@ -913,6 +1018,20 @@ function closeStoryViewer() {
   try { if (svMute) svMute.hidden = true; } catch(_) {}
   try { if (svLike) svLike.hidden = true; } catch(_) {}
   try { if (svAnalytics) svAnalytics.hidden = true; } catch(_) {}
+  try { 
+    if (svReplyBtn) {
+      svReplyBtn.hidden = true;
+      svReplyBtn.disabled = false; // Reset disabled state
+    }
+  } catch(_) {}
+  try { 
+    if (svReplyContainer) {
+      svReplyContainer.classList.remove('show');
+      svReplyContainer.classList.remove('animate-in');
+    }
+  } catch(_) {}
+  // Clear reply input
+  try { if (svReplyInput) svReplyInput.value = ''; } catch(_) {}
   storyViewer.classList.add('hidden');
   storyViewer.setAttribute('aria-hidden', 'true');
 }
@@ -1153,8 +1272,8 @@ async function handleAddStoryFile(file) {
   
   // Show circular progress on "Your Story"
   try { 
-    ensureMyStoryProgressOverlay(); 
-    updateMyStoryProgress(0); 
+    createStoryProgressCircle(); 
+    updateStoryProgress(0); 
     if (addStoryBtn) addStoryBtn.disabled = true; 
   } catch(_) {}
   
@@ -1162,7 +1281,7 @@ async function handleAddStoryFile(file) {
     console.log('Starting story upload...');
     const up = await uploadStoryFile(uploadFile, (p)=> { 
       if (ui) ui.update(p); 
-      try { updateMyStoryProgress(p); } catch(_) {} 
+      try { updateStoryProgress(p); } catch(_) {} 
     });
     
     console.log('Upload successful, saving to Firestore...');
@@ -1180,7 +1299,7 @@ async function handleAddStoryFile(file) {
     
     console.log('Story saved successfully!');
     if (ui) ui.done();
-    try { updateMyStoryProgress(100); } catch(_) {}
+    try { updateStoryProgress(100); } catch(_) {}
     
   } catch (e) {
     console.error('Story upload failed:', e);
@@ -1199,7 +1318,7 @@ async function handleAddStoryFile(file) {
     alert(`Story upload failed: ${errorMsg}`);
   } finally {
     try { 
-      clearMyStoryProgress(); 
+      clearStoryProgress(); 
       if (addStoryBtn) addStoryBtn.disabled = false; 
     } catch(_) {}
   }
@@ -1234,6 +1353,124 @@ if (svMute) svMute.addEventListener('click', () => {
   updateMuteBtn(newMuted);
   try { v.play(); } catch(_) {}
 });
+
+// ================= Story Replies System =================
+async function sendStoryReply(storyOwnerUid, replyText) {
+  if (!currentUser || !storyOwnerUid || !replyText.trim()) return;
+  
+  try {
+    // Create a chat between current user and story owner
+    const chatId = getChatId(currentUser.uid, storyOwnerUid);
+    
+    // Get current story info for context
+    const currentStoryInfo = getCurrentStoryInfo();
+    
+    // Send the reply as a regular message with story context
+    const message = {
+      from: currentUser.uid,
+      to: storyOwnerUid,
+      type: 'story-reply',
+      text: replyText.trim(),
+      storyReply: true,
+      storyContext: currentStoryInfo, // Include story info for thumbnail display
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    
+    // Create/update chat document
+    await chatsCol.doc(chatId).set({
+      users: [currentUser.uid, storyOwnerUid],
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    
+    // Add the message
+    await chatsCol.doc(chatId).collection('messages').add(message);
+    
+    console.log('Story reply sent successfully');
+    return true;
+  } catch (error) {
+    console.error('Failed to send story reply:', error);
+    throw error;
+  }
+}
+
+// Helper function to get current story context info
+function getCurrentStoryInfo() {
+  if (!__viewer.currentStoryId || !__viewer.ownerUid) return null;
+  
+  try {
+    // Find the current story in the stories cache
+    const ownerStories = __storiesByOwner.get(__viewer.ownerUid);
+    if (!ownerStories) return null;
+    
+    const currentStory = ownerStories.find(s => s.id === __viewer.currentStoryId);
+    if (!currentStory) return null;
+    
+    return {
+      storyId: currentStory.id,
+      ownerUid: currentStory.ownerUid,
+      mediaUrl: currentStory.mediaUrl,
+      mediaType: currentStory.mediaType,
+      createdAt: currentStory.createdAt
+    };
+  } catch (error) {
+    console.warn('Failed to get current story info:', error);
+    return null;
+  }
+}
+
+// Function to reopen a story from thumbnail click
+async function reopenStoryFromThumbnail(storyContext) {
+  if (!storyContext || !storyContext.storyId || !storyContext.ownerUid) {
+    console.warn('Invalid story context for reopening');
+    return;
+  }
+  
+  try {
+    // Check if the story still exists and hasn't expired
+    const storyDoc = await storiesCol.doc(storyContext.storyId).get();
+    
+    if (!storyDoc.exists) {
+      alert('This story is no longer available.');
+      return;
+    }
+    
+    const storyData = storyDoc.data();
+    
+    // Check if story has expired
+    const now = Date.now();
+    let exp = 0;
+    if (storyData.expiresAt && storyData.expiresAt.toDate) {
+      exp = storyData.expiresAt.toDate().getTime();
+    } else if (storyData.createdAt && storyData.createdAt.toDate) {
+      exp = storyData.createdAt.toDate().getTime() + 24*60*60*1000; // 24h fallback
+    }
+    
+    if (exp && exp <= now) {
+      alert('This story has expired.');
+      return;
+    }
+    
+    // Find the owner's stories and the specific story index
+    const ownerStories = __storiesByOwner.get(storyContext.ownerUid);
+    if (!ownerStories || ownerStories.length === 0) {
+      alert('Story owner\'s stories are not available.');
+      return;
+    }
+    
+    const storyIndex = ownerStories.findIndex(s => s.id === storyContext.storyId);
+    if (storyIndex === -1) {
+      alert('Story not found in owner\'s stories.');
+      return;
+    }
+    
+    // Open the story viewer at the specific story
+    openStoryViewer(storyContext.ownerUid, storyIndex);
+    
+  } catch (error) {
+    console.error('Error reopening story:', error);
+    alert('Failed to open story. It may no longer be available.');
+  }
+}
 
 // ================= Story Likes & Views System =================
 async function trackStoryView(storyId, ownerUid) {
@@ -1290,7 +1527,37 @@ function setupStoryInteractions(story) {
   
   // Show analytics button only for story owner
   const isOwner = currentUser.uid === story.ownerUid;
+  console.log('Story interaction setup:', { 
+    storyId: story.id, 
+    currentUserUid: currentUser.uid, 
+    storyOwnerUid: story.ownerUid, 
+    isOwner 
+  });
   try { if (svAnalytics) svAnalytics.hidden = !isOwner; } catch(_) {}
+  
+  // Show/hide reply button based on ownership (opposite of analytics)
+  // NEVER show reply button on user's own stories
+  try { 
+    if (svReplyBtn) {
+      svReplyBtn.hidden = isOwner;
+      // Additional safety: also set disabled state
+      svReplyBtn.disabled = isOwner;
+      // Update aria-label for accessibility
+      if (isOwner) {
+        svReplyBtn.setAttribute('aria-label', 'Cannot reply to own story');
+      } else {
+        svReplyBtn.setAttribute('aria-label', 'Reply to story');
+      }
+    }
+  } catch(_) {}
+  
+  // Hide reply interface and clear input
+  try {
+    if (svReplyContainer) {
+      svReplyContainer.classList.remove('show');
+      if (svReplyInput) svReplyInput.value = '';
+    }
+  } catch(_) {}
   
   // Listen to likes for this story
   __viewer.likesUnsub = storyLikesCol
@@ -1447,6 +1714,152 @@ if (svLike) {
 
 if (svAnalytics) {
   svAnalytics.addEventListener('click', openStoryAnalytics);
+}
+
+// Reply button to show/hide reply interface
+if (svReplyBtn) {
+  svReplyBtn.addEventListener('click', () => {
+    if (svReplyContainer && !svReplyContainer.classList.contains('show')) {
+      // Show reply interface with animation
+      svReplyContainer.classList.add('show');
+      svReplyContainer.classList.add('animate-in');
+      
+      // Focus on input after animation
+      setTimeout(() => {
+        if (svReplyInput) svReplyInput.focus();
+        svReplyContainer.classList.remove('animate-in');
+      }, 300);
+    }
+  });
+}
+
+// Close button to hide reply interface
+if (svReplyClose) {
+  svReplyClose.addEventListener('click', () => {
+    if (svReplyContainer && svReplyContainer.classList.contains('show')) {
+      // Hide reply interface
+      svReplyContainer.classList.remove('show');
+      // Clear input
+      if (svReplyInput) svReplyInput.value = '';
+    }
+  });
+}
+
+// Story reply form submission
+if (svReplyForm && svReplyInput) {
+  // Add typing indicator animation
+  svReplyInput.addEventListener('input', () => {
+    if (svReplyInput.value.trim().length > 0) {
+      svReplyForm.classList.add('typing');
+    } else {
+      svReplyForm.classList.remove('typing');
+    }
+  });
+  
+  // Remove typing animation on blur
+  svReplyInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      svReplyForm.classList.remove('typing');
+    }, 300);
+  });
+  
+  svReplyForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const replyText = svReplyInput.value.trim();
+    if (!replyText || !__viewer.ownerUid || !currentUser) return;
+    
+    // Don't allow replies to own stories - multiple safety checks
+    if (__viewer.ownerUid === currentUser.uid) {
+      console.warn('Attempted to reply to own story - blocked');
+      // Hide reply interface immediately
+      if (svReplyContainer) svReplyContainer.classList.remove('show');
+      return;
+    }
+    
+    // Additional check: ensure reply button should be visible
+    if (svReplyBtn && svReplyBtn.hidden) {
+      console.warn('Reply button is hidden, should not be able to submit');
+      return;
+    }
+    
+    const submitBtn = svReplyForm.querySelector('.sv-reply-send');
+    
+    try {
+      // Enhanced visual feedback during submission
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.style.transform = 'scale(0.9)';
+        submitBtn.style.background = 'rgba(99,102,241,0.6)';
+      }
+      svReplyInput.disabled = true;
+      svReplyForm.classList.remove('typing');
+      svReplyForm.style.opacity = '0.7';
+      
+      // Send the reply
+      await sendStoryReply(__viewer.ownerUid, replyText);
+      
+      // Success animation
+      svReplyInput.value = '';
+      svReplyForm.style.transform = 'scale(1.02)';
+      svReplyForm.style.background = 'rgba(34,197,94,0.15)';
+      svReplyForm.style.borderColor = 'rgba(34,197,94,0.4)';
+      
+      // Show success feedback
+      const originalPlaceholder = svReplyInput.placeholder;
+      svReplyInput.placeholder = 'Reply sent! ✓';
+      
+      // Hide reply interface after delay
+      setTimeout(() => {
+        if (svReplyContainer) svReplyContainer.classList.remove('show');
+      }, 1500);
+      
+      setTimeout(() => {
+        // Reset to normal state
+        svReplyForm.style.transform = '';
+        svReplyForm.style.background = '';
+        svReplyForm.style.borderColor = '';
+        if (svReplyInput) svReplyInput.placeholder = originalPlaceholder;
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Failed to send reply:', error);
+      
+      // Error animation
+      svReplyForm.style.background = 'rgba(239,68,68,0.15)';
+      svReplyForm.style.borderColor = 'rgba(239,68,68,0.4)';
+      svReplyForm.style.animation = 'shake 0.5s ease-in-out';
+      
+      // Show error feedback
+      const originalPlaceholder = svReplyInput.placeholder;
+      svReplyInput.placeholder = 'Failed to send. Try again.';
+      
+      setTimeout(() => {
+        svReplyForm.style.background = '';
+        svReplyForm.style.borderColor = '';
+        svReplyForm.style.animation = '';
+        if (svReplyInput) svReplyInput.placeholder = originalPlaceholder;
+      }, 3000);
+      
+    } finally {
+      // Re-enable form
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.style.transform = '';
+        submitBtn.style.background = '';
+      }
+      svReplyInput.disabled = false;
+      svReplyForm.style.opacity = '';
+    }
+  });
+  
+  // Handle Enter key for quick sending
+  svReplyInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      svReplyForm.requestSubmit();
+    }
+  });
 }
 
 if (closeAnalytics) {
@@ -2663,6 +3076,45 @@ function stopPresence() {
 function showChat(){
   calculatorScreen.classList.add('hidden');
   chatUI.classList.remove('hidden');
+  
+  // Show the profile button with smooth fade-in animation
+  if (profileBtn && currentUser) {
+    // Ensure button is visible but initially transparent for smooth animation
+    profileBtn.style.display = '';
+    profileBtn.style.opacity = '0';
+    profileBtn.style.transform = 'translateY(-12px) scale(0.9)';
+    profileBtn.style.filter = 'blur(3px)';
+    
+    // Remove any existing animation class
+    profileBtn.classList.remove('profile-fade-in');
+    
+    // Force a reflow to ensure styles are applied
+    profileBtn.offsetHeight;
+    
+    // Start animation immediately after ensuring initial state
+    requestAnimationFrame(() => {
+      profileBtn.classList.add('profile-fade-in');
+    });
+    
+    // Clean up after animation completes
+    setTimeout(() => {
+      profileBtn.classList.remove('profile-fade-in');
+      // Reset inline styles to let CSS take over
+      profileBtn.style.opacity = '';
+      profileBtn.style.transform = '';
+      profileBtn.style.filter = '';
+    }, 850); // 800ms animation + 50ms buffer
+  }
+  
+  // Ensure any existing messages are scrolled to bottom when chat opens
+  if (messagesEl && selectedPeer) {
+    requestAnimationFrame(() => {
+      try {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      } catch(_) {}
+    });
+  }
+  
   // Mark chat as loaded to prevent initial animation conflicts
   setTimeout(() => {
     chatUI.classList.add('chat-loaded');
@@ -2687,6 +3139,16 @@ function showChat(){
 function hideChat(){
   chatUI.classList.add('hidden');
   calculatorScreen.classList.remove('hidden');
+  
+  // Hide the profile button when returning to calculator mode
+  if (profileBtn) {
+    // Remove any animation classes and reset styles
+    profileBtn.classList.remove('profile-fade-in');
+    profileBtn.style.opacity = '';
+    profileBtn.style.transform = '';
+    profileBtn.style.filter = '';
+    profileBtn.style.display = 'none';
+  }
 }
 
 // Toggle chat area (messages/composer) vs. empty state
@@ -2696,6 +3158,16 @@ function setChatContentVisible(show){
   if (messageForm) messageForm.classList.toggle('hidden', !visible);
   if (typingIndicator) typingIndicator.classList.add('hidden');
   if (emptyState) emptyState.classList.toggle('hidden', visible);
+  
+  // Scroll to bottom when chat becomes visible
+  if (visible && messagesEl) {
+    // Use requestAnimationFrame to ensure DOM is updated before scrolling
+    requestAnimationFrame(() => {
+      try {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      } catch(_) {}
+    });
+  }
 }
 
 // User list
@@ -2926,7 +3398,22 @@ function formatTimeLocal(d) {
 
 // ===== Mobile layout helpers =====
 function isMobile(){ try { return window.innerWidth <= 900; } catch(_) { return false; } }
-function openChatPanel(){ try { const el = document.getElementById('chatUI'); if (el) el.classList.add('chat-open'); } catch(_) {} }
+function openChatPanel(){ 
+  try { 
+    const el = document.getElementById('chatUI'); 
+    if (el) {
+      el.classList.add('chat-open');
+      // Ensure messages scroll to bottom when mobile panel opens
+      if (messagesEl && selectedPeer) {
+        requestAnimationFrame(() => {
+          try {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          } catch(_) {}
+        });
+      }
+    }
+  } catch(_) {} 
+}
 function closeChatPanel(){ try { const el = document.getElementById('chatUI'); if (el) el.classList.remove('chat-open'); } catch(_) {} }
 
 // Trigger chat panel entry animation
@@ -2939,10 +3426,31 @@ function animateChatOpen(){
     // Force reflow to allow re-adding the class to retrigger animation
     void panel.offsetWidth;
     panel.classList.add('opening');
-    const onEnd = () => { panel.classList.remove('opening'); panel.removeEventListener('animationend', onEnd); };
+    const onEnd = () => { 
+      panel.classList.remove('opening'); 
+      panel.removeEventListener('animationend', onEnd);
+      // Ensure scroll to bottom after animation completes
+      if (messagesEl && selectedPeer) {
+        requestAnimationFrame(() => {
+          try {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          } catch(_) {}
+        });
+      }
+    };
     panel.addEventListener('animationend', onEnd);
     // Fallback cleanup in case animationend doesn't fire
-    setTimeout(() => { panel.classList.remove('opening'); }, 600);
+    setTimeout(() => { 
+      panel.classList.remove('opening');
+      // Ensure scroll to bottom after fallback cleanup
+      if (messagesEl && selectedPeer) {
+        requestAnimationFrame(() => {
+          try {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          } catch(_) {}
+        });
+      }
+    }, 600);
   } catch(_) {}
 }
 
@@ -3012,7 +3520,12 @@ async function selectPeer(u){
       }
       renderMessage(d);
     });
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    // Ensure smooth scroll to bottom after all messages are rendered
+    requestAnimationFrame(() => {
+      try {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      } catch(_) {}
+    });
     ensureTikTokScript();
     // Update sent/seen status after rendering
     updateSendStatus();
@@ -3121,6 +3634,97 @@ function renderMessage(m) {
   if (m.deletedForAll) {
     wrap.classList.add('deleted');
     body.textContent = 'This message was deleted';
+  } else if (m.type === 'story-reply') {
+    // Handle story reply messages with thumbnail and text
+    const storyReplyContainer = document.createElement('div');
+    storyReplyContainer.className = 'story-reply-message';
+    
+    // Story context header
+    const contextHeader = document.createElement('div');
+    contextHeader.className = 'story-context-header';
+    contextHeader.textContent = 'Replied to story';
+    
+    // Story thumbnail (clickable)
+    if (m.storyContext && m.storyContext.mediaUrl) {
+      const storyThumb = document.createElement('div');
+      storyThumb.className = 'story-thumbnail loading';
+      storyThumb.style.cursor = 'pointer';
+      storyThumb.title = 'Click to view story';
+      
+      if (m.storyContext.mediaType === 'video') {
+        const video = document.createElement('video');
+        video.src = m.storyContext.mediaUrl;
+        video.muted = true;
+        video.style.width = '100%';
+        video.style.height = '100%';
+        video.style.objectFit = 'cover';
+        video.style.borderRadius = 'inherit';
+        video.preload = 'metadata';
+        
+        video.addEventListener('loadeddata', () => {
+          storyThumb.classList.remove('loading');
+        });
+        
+        video.addEventListener('error', () => {
+          storyThumb.classList.remove('loading');
+          storyThumb.style.background = 'rgba(239,68,68,0.1)';
+          storyThumb.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef4444;font-size:12px;">Video unavailable</div>';
+        });
+        
+        storyThumb.appendChild(video);
+      } else {
+        const img = document.createElement('img');
+        img.src = m.storyContext.mediaUrl;
+        img.alt = 'Story thumbnail';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = 'inherit';
+        img.loading = 'lazy';
+        
+        img.addEventListener('load', () => {
+          storyThumb.classList.remove('loading');
+        });
+        
+        img.addEventListener('error', () => {
+          storyThumb.classList.remove('loading');
+          storyThumb.style.background = 'rgba(239,68,68,0.1)';
+          storyThumb.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef4444;font-size:12px;">Image unavailable</div>';
+        });
+        
+        storyThumb.appendChild(img);
+      }
+      
+      // Click handler to reopen the story
+      storyThumb.addEventListener('click', () => {
+        reopenStoryFromThumbnail(m.storyContext);
+      });
+      
+      storyReplyContainer.appendChild(contextHeader);
+      storyReplyContainer.appendChild(storyThumb);
+    }
+    
+    // Reply text
+    const replyText = document.createElement('div');
+    replyText.className = 'story-reply-text';
+    replyText.textContent = m.text || '';
+    storyReplyContainer.appendChild(replyText);
+    
+    // Add animation class for newly sent messages
+    if (m.from === (currentUser && currentUser.uid)) {
+      let fresh = true;
+      try {
+        if (m.createdAt && m.createdAt.toDate) {
+          const ageMs = Date.now() - m.createdAt.toDate().getTime();
+          fresh = ageMs < 3000; // 3 seconds
+        }
+      } catch(_) {}
+      if (fresh) {
+        storyReplyContainer.classList.add('just-sent');
+      }
+    }
+    
+    body.appendChild(storyReplyContainer);
   } else if (m.type === 'text') {
     body.textContent = m.text || '';
   } else if (m.type === 'image' && (m.imageUrl || m.thumbUrl)) {
@@ -3581,7 +4185,8 @@ auth.onAuthStateChanged(async (user) => {
     try { await calibrateServerOffset(); } catch(e) {}
     authBtn.style.display = 'none';
     logoutBtn.style.display = '';
-    if (profileBtn) profileBtn.style.display = '';
+    // DON'T show profile button yet - only after app is unlocked
+    if (profileBtn) profileBtn.style.display = 'none';
     meEmail.textContent = user.email || '';
     if (typeof meAvatar !== 'undefined' && meAvatar) { meAvatar.textContent = ''; meAvatar.dataset.bg = ''; }
 
